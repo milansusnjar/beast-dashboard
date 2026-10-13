@@ -314,8 +314,37 @@ function allowed(req) {
   if (ip === '127.0.0.1' || ip === '::1') return true;
   if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(ip)) return true; // tailscale CGNAT 100.64.0.0/10
   if (ip.startsWith('fd7a:115c:a1e0:')) return true;
-  for (const p of settings.get().allowedPrefixes || []) if (p && ip.startsWith(p)) return true;
+  { const ap = settings.get().allowedPrefixes; for (const p of Array.isArray(ap) ? ap : []) if (typeof p === 'string' && p && ip.startsWith(p)) return true; }
   return false;
+}
+// Anti cross-site / DNS-rebinding guard. The IP allow-list above only says "this request came from the tailnet" — but a
+// web page open in your laptop's or phone's browser ALSO comes from the tailnet, so any site could POST to /api/shell,
+// /api/claude… or read the dashboard. So: the Host must be one of our own names, and a browser request must be same-host
+// (Origin host:port) and not cross-site. An IP literal is always fine (a rebinding attack sends the attacker's domain as Host);
+// a custom DNS name for the server (not *.ts.net) goes in `publicHost` or `allowedHosts` in state/settings.json.
+const hostName = h => { h = String(h || '').toLowerCase(); const v6 = h.match(/^\[([^\]]+)\]/); return v6 ? v6[1] : h.replace(/:\d+$/, ''); };
+const hostPort = h => String(h || '').toLowerCase().replace(/:(80|443)$/, '');   // host[:port], default ports dropped
+const TERM_PORT = 7681;   // ttyd; over plain http its page is another origin (same host, this port)
+function hostOk(req) {
+  const n = hostName(req.headers.host), s = settings.get();
+  if (n === 'localhost' || !n.includes('.') || n.endsWith('.ts.net')) return true;
+  if (require('net').isIP(n)) return true;   // IPv4 / IPv6 literal
+  const extra = Array.isArray(s.allowedHosts) ? s.allowedHosts : [];
+  return [s.publicHost, ...extra].some(x => typeof x === 'string' && x && hostName(x) === n);
+}
+// Origin must be exactly this host:port — another port on the same host (a forwarded dev server, any app on your own
+// localhost when you use an SSH tunnel) is another site. Only the terminal page may upload pasted files.
+function sameOrigin(req, path) {
+  const o = req.headers.origin;
+  if (o !== undefined) {
+    let u; try { u = new URL(o); } catch { return false; }
+    if (hostPort(u.host) !== hostPort(req.headers.host)) {
+      const fromTerm = hostName(u.host) === hostName(req.headers.host) && +u.port === TERM_PORT;
+      if (!(fromTerm && path === '/api/paste-image')) return false;
+    }
+  }
+  if (path.startsWith('/api/') && req.headers['sec-fetch-site'] === 'cross-site') return false;
+  return true;
 }
 function json(res, code, obj) { res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); res.end(JSON.stringify(obj)); }
 function body(req, max = 1e6) { return new Promise((resolve, reject) => { let d = ''; req.on('data', c => { d += c; if (d.length > max) req.destroy(); }); req.on('end', () => { try { resolve(d ? JSON.parse(d) : {}); } catch (e) { reject(e); } }); }); }
@@ -459,7 +488,7 @@ async function api(req, res, url) {
   }
   if (m === 'GET' && parts[0] === 'push' && parts[1] === 'key') return json(res, 200, { key: push.publicKey(), subs: push.subscriptions().length });
   if (m === 'GET' && parts[0] === 'usage') return json(res, 200, usage.summary());
-  if (m === 'GET' && parts[0] === 'temps') return json(res, 200, sys.tempsHistory());
+  if (m === 'GET' && parts[0] === 'temps') return json(res, 200, sys.tempsHistory(Number(url.searchParams.get('days')) || 1));
   if (m === 'GET' && parts[0] === 'recap') { const off = Math.max(0, Math.min(6, +(url.searchParams.get('day') || 0))); return json(res, 200, await recap.recap(off, projects, usage.files(), cwd => rt.attributeTo(projects, cwd))); }
   if (m === 'GET' && parts[0] === 'claude' && parts[1] === 'sessions') return json(res, 200, claude.all());
   if (m === 'GET' && parts[0] === 'transcript' && parts[1]) { // last N turns of a Claude session, by tmux name
@@ -484,7 +513,7 @@ async function api(req, res, url) {
   if (parts[0] === 'paste-image') {
     // Upload from the web terminal: the page on :7681 is another origin, hence CORS + preflight.
     // Saved under <devRoot>/.pasted; the returned path is what the terminal layer types into the prompt.
-    const cors = { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'POST, OPTIONS', 'access-control-allow-headers': 'content-type' };
+    const cors = { 'access-control-allow-origin': req.headers.origin || 'null', vary: 'Origin', 'access-control-allow-methods': 'POST, OPTIONS', 'access-control-allow-headers': 'content-type' };
     if (m === 'OPTIONS') { res.writeHead(204, cors); return res.end(); }
     if (m !== 'POST') return json(res, 405, { error: 'POST only' });
     // Any file type. `name=` keeps the original file name (csv, json, log, zip … — Claude sees what it is); a bare
@@ -658,7 +687,9 @@ async function api(req, res, url) {
 
 const server = http.createServer(async (req, res) => {
   if (!allowed(req)) { res.writeHead(403); return res.end('forbidden (not localhost / tailnet)'); }
+  if (!hostOk(req)) { res.writeHead(403); return res.end('forbidden (unknown Host — reach it by IP, localhost or *.ts.net, or add this name to allowedHosts in state/settings.json and restart)'); }
   const url = new URL(req.url, 'http://x');
+  if (!sameOrigin(req, url.pathname)) { res.writeHead(403); return res.end('forbidden (cross-site request)'); }
   try {
     if (url.pathname.startsWith('/api/')) return await api(req, res, url);
     let f = url.pathname === '/' ? '/index.html' : url.pathname;

@@ -221,6 +221,36 @@ function dropFrame(session) { const f = TERM.frames.get(session); if (f) f.remov
 function gcFrames() { const now = Date.now(); for (const k of [...TERM.frames.keys()]) if (k !== TERM.active && now - (TERM.lastUsed.get(k) || 0) > FRAME_IDLE_MS) dropFrame(k); }
 // '+ shell' → tmux session sh-N on the server (survives reload; 'shell' = ttyd's plain non-tmux bash, kept only for old tabs)
 async function newShell() { try { const r = await api('shell', {}); openTerm(r.name); } catch (e) { toast('shell failed: ' + e.message, 'err'); } }
+// "+ Terminal": pick a project, account (personal/company) and fresh/resume-last → Claude session in that project;
+// or skip the project and start a plain bash shell. Choices are remembered.
+const NT = { acct: localStorage.getItem('bd.nt.acct') || 'personal', resume: localStorage.getItem('bd.nt.resume') === '1', q: '', org: 'all' };
+function newTerminalModal() {
+  const m = $('#modal'); m.classList.remove('hidden');
+  const close = () => { m.classList.add('hidden'); document.removeEventListener('keydown', esc, true); };
+  const esc = e => { if (e.key === 'Escape' && !m.classList.contains('hidden')) { e.preventDefault(); e.stopPropagation(); close(); } };
+  document.addEventListener('keydown', esc, true);
+  NT.q = ''; const list = h('div', { class: 'ntlist' }); const opts = h('div', { class: 'ntopts' });
+  const seg = (items, cur, set) => h('span', { class: 'seg' }, items.map(([v, l]) => h('button', { class: 'segb' + (cur === v ? ' on' : ''), onclick: () => { set(v); renderOpts(); renderList(); } }, l)));
+  const renderOpts = () => opts.replaceChildren(
+    h('span', { class: 'ntl' }, 'Account'), seg([['personal', acct('personal')], ['company', acct('company')]], NT.acct, v => { NT.acct = v; localStorage.setItem('bd.nt.acct', v); }),
+    h('span', { class: 'ntl' }, 'Session'), seg([[false, 'New'], [true, 'Resume last']], NT.resume, v => { NT.resume = v; localStorage.setItem('bd.nt.resume', v ? '1' : '0'); }));
+  const go = p => { close(); startClaude(p, NT.acct, NT.resume ? { resume: true } : {}); };
+  const shown = () => { const q = NT.q.trim().toLowerCase(); return S.projects.filter(p => !p.hidden && (NT.org === 'all' || p.org === NT.org) && (!q || [p.name, p.org, p.dirName, p.group].join(' ').toLowerCase().includes(q))); };
+  const renderList = () => {
+    const r = shown(); const base = p => 'claude-' + p.dirName.replace(/[^A-Za-z0-9_.-]+/g, '-') + (NT.acct === 'company' ? '-company' : '');
+    const live = new Set(S.runtime.sessions.map(x => x.name));
+    list.replaceChildren(...(r.length ? r.map(p => h('div', { class: 'ntrow', onclick: () => go(p) }, avatar(p.id, 'sm'), h('div', { class: 'ntn' }, h('div', { class: 'ntt' }, p.name), h('div', { class: 'nts' }, [p.org, p.group].filter(Boolean).join(' · '))), live.has(base(p)) ? h('span', { class: 'badge tag acc ' + NT.acct }, 'running → attach') : NT.resume ? h('span', { class: 'dim', style: 'font-size:11.5px' }, '↺ --continue') : null)) : [h('div', { class: 'tsempty' }, 'No project matches.')]));
+  };
+  const orgs = [...new Set(S.projects.filter(p => !p.hidden).map(p => p.org).filter(Boolean))];
+  const orgChips = h('span', { class: 'chips sm' }, ['all', ...orgs].map(o => h('button', { class: 'chip' + (NT.org === o ? ' on' : ''), onclick: () => { NT.org = o; orgChips.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c.dataset.o === o)); renderList(); }, 'data-o': o }, o === 'all' ? 'All' : o)));
+  const inp = h('input', { class: 'txt', placeholder: 'Search projects…  (Enter = first match)', oninput: e => { NT.q = e.target.value; renderList(); }, onkeydown: e => { if (e.key === 'Enter') { const r = shown()[0]; if (r) go(r); } } });
+  const box = h('div', { class: 'box ntbox' },
+    h('div', { class: 'sh' }, h('h3', null, '＋ New terminal'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: close }, ico('x', 15))),
+    h('button', { class: 'btn ntshell', onclick: () => { close(); newShell(); } }, ico('plus', 13), h('b', null, 'No project — just start a shell'), h('span', { class: 'dim' }, 'plain bash in the dev folder')),
+    opts, inp, orgs.length > 1 ? orgChips : null, list);
+  m.replaceChildren(box); m.onclick = e => { if (e.target === m) close(); };
+  renderOpts(); renderList(); if (!IS_PHONE) setTimeout(() => inp.focus(), 0);
+}
 function claudeOf(name) { const s = S.runtime.sessions.find(x => x.name === name); return s && s.claude || null; }
 const isClaudeSession = s => s.name.startsWith('claude-') || s.current === 'claude' || !!s.claude;
 // Claude first, and within Claude: the ones that need you, then the ones working, then idle.
@@ -278,7 +308,7 @@ function renderTermPanel(force) {
   trackVV(300);
   el.classList.toggle('showlist', TERM.showList); el.classList.toggle('focus', TERM.focus);
   if (!$('#term-list')) {
-    el.append(h('aside', { class: 'termside' }, h('div', { class: 'termside-head' }, h('button', { class: 'btn sm ghost back', title: 'back to dashboard — all sessions keep running (Esc)', onclick: closeTermPanel }, ico('back'), 'Dashboard'), h('span', { class: 'sp' }), h('button', { class: 'btn sm', title: 'new bash shell in the dev folder', onclick: newShell }, ico('plus', 13), 'Shell'), h('button', { class: 'btn sm ghost icon desk', title: 'focus mode — hide the session list (for screen sharing)', onclick: () => setFocus(true) }, ico('sidebar', 15))), h('div', { id: 'term-list' })),
+    el.append(h('aside', { class: 'termside' }, h('div', { class: 'termside-head' }, h('button', { class: 'btn sm ghost back', title: 'back to dashboard — all sessions keep running (Esc)', onclick: closeTermPanel }, ico('back'), 'Dashboard'), h('span', { class: 'sp' }), h('button', { class: 'btn sm', title: 'new terminal — pick a project + account, or a plain shell  (s)', onclick: newTerminalModal }, ico('plus', 13), 'Terminal'), h('button', { class: 'btn sm ghost icon desk', title: 'focus mode — hide the session list (for screen sharing)', onclick: () => setFocus(true) }, ico('sidebar', 15))), h('div', { id: 'term-list' })),
       h('section', { class: 'termmain' }, h('div', { class: 'termbar', id: 'term-bar' }), h('div', { class: 'termframes', id: 'term-frames' }, h('div', { class: 'chatpane hidden', id: 'term-chat' }))));
   }
   const S3 = termSessions(); const known = new Set(S.runtime.sessions.map(s => s.name));
@@ -635,7 +665,7 @@ function renderTermStrip() {
     h('span', { class: 'sp' }),
     h('span', { class: 'hint dim', title: 'order never changes: alphabetical by tmux session name' }, 'fixed order'),
     S.runtime.sessions.length ? h('button', { class: 'btn sm ghost', title: 'full-screen terminal view  (t)', onclick: () => { if (!TERM.open) pushLayer('term'); TERM.open = true; if (!TERM.active) { const c = S3.claude[0] || S.runtime.sessions[0]; if (c) ensureFrame(c.name), TERM.active = c.name; } renderTermPanel(true); } }, ico('full', 13), 'Terminals') : null,
-    h('button', { class: 'btn sm', title: 'new bash shell in the dev folder  (s)', onclick: newShell }, ico('plus', 13), 'Shell')));
+    h('button', { class: 'btn sm', title: 'new terminal — pick a project + account, or a plain shell  (s)', onclick: newTerminalModal }, ico('plus', 13), 'Terminal')));
   const ss = scheduledStrip(); if (ss) el.append(ss);
   if (!S3.claude.length) { el.append(h('div', { class: 'tsempty' }, 'No Claude sessions. Open ', h('a', { href: '#', onclick: ev => { ev.preventDefault(); setView('projects'); } }, 'Projects'), ' and press ✦ Claude ▾ on a card, or ⌘K.')); return; }
   el.append(h('div', { class: 'agents' }, claudeGroups(S3.claude).map(agentGroup)));
@@ -1866,14 +1896,14 @@ document.addEventListener('keydown', e => {
   if (PAL.open) return;   // the palette handles its own keys
   if (e.key === '/' && !typing) { e.preventDefault(); $('#search').focus(); }
   if (e.key === 'Escape') { if (!$('#modal').classList.contains('hidden')) $('#modal').classList.add('hidden'); else if (UI.menuOpen) closeMenu(); else if (UI.drawer) closeDrawer(); else if (TERM.open) closeTermPanel(); else if (UI.q) { $('#search').value = ''; UI.q = ''; renderMain(); } else if (UI.view === 'projects' || UI.view === 'tasks') setView('home'); } // drawer before term: the Changes drawer can sit on top of the terminal
-  // dashboard-level shortcuts (not while typing): t = terminals, n = next session that needs you, s = new shell
+  // dashboard-level shortcuts (not while typing): t = terminals, n = next session that needs you, s = new terminal
   if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.key === 't') { e.preventDefault(); $('#btn-shell').click(); }
   if (e.key === 'd') { e.preventDefault(); downloadsModal(); }
   if (e.key === 'p') { e.preventDefault(); setView('projects'); }
   if (e.key === 'h') { e.preventDefault(); setView('home'); }
   if (e.key === 'n') { e.preventDefault(); const c = termSessions().claude.find(x => x.claude?.needsYou) || termSessions().claude[0]; if (c) openTerm(c.name); }
-  if (e.key === 's' && !TERM.open) { e.preventDefault(); newShell(); }
+  if (e.key === 's' && !TERM.open) { e.preventDefault(); newTerminalModal(); }
   if (/^[1-9]$/.test(e.key) && TERM.open) { const o = termOrder(); if (o[+e.key - 1]) openTerm(o[+e.key - 1]); }
 });
 window.addEventListener('resize', drawSparks);
@@ -1887,7 +1917,8 @@ function paletteItems() {
   for (const it of S3.dev) items.push({ kind: 'dev', label: it.project + ' · ' + it.label, sub: it.ports.map(p => ':' + p.port).join(' ') || it.name, icon: '▶', hay: [it.project, it.label, it.name].join(' '), run: () => openTerm(it.name), rank: 10 });
   for (const it of S3.other) items.push({ kind: 'other', label: it.name, sub: it.cwd, icon: '⌨', hay: it.name + ' ' + it.cwd, run: () => openTerm(it.name), rank: 11 });
   for (const p of S.projects.filter(p => !p.hidden)) items.push({ kind: 'project', label: p.name, sub: [p.org, p.group, p.framework].filter(Boolean).join(' · '), icon: '▤', hay: [p.name, p.rel, p.org, p.framework].join(' '), run: () => openDrawer(p.id, 'overview'), rank: 20, more: [{ l: '✦', t: `Claude (${acctL('personal')})`, f: () => startClaude(p, 'personal') }, { l: '✦c', t: `Claude (${acctL('company')})`, f: () => startClaude(p, 'company') }, { l: '±', t: 'changes', f: () => openDrawer(p.id, 'changes') }] });
-  items.push({ kind: 'action', label: 'New shell', sub: 'bash in the dev folder (tmux sh-N)', icon: '$', hay: 'shell bash terminal new', run: newShell, rank: 30 },
+  items.push({ kind: 'action', label: 'New terminal', sub: 'pick project + account + resume, or plain shell', icon: '＋', hay: 'new terminal project claude session', run: newTerminalModal, rank: 29 },
+    { kind: 'action', label: 'New shell', sub: 'bash in the dev folder (tmux sh-N)', icon: '$', hay: 'shell bash terminal new', run: newShell, rank: 30 },
     { kind: 'action', label: 'Terminals panel', sub: 'full-screen terminal view', icon: '⛶', hay: 'terminals panel', run: () => $('#btn-shell').click(), rank: 31 },
     { kind: 'action', label: 'Tunnels', sub: 'exposed ports', icon: '⇄', hay: 'tunnels ports expose socat', run: () => { UI.showTunnels = true; renderTunnels(); }, rank: 32 },
     { kind: 'action', label: 'Tasks', sub: `${(S.claude?.tasks || []).filter(t => t.status !== 'done').length} open`, icon: '☑', hay: 'tasks todo backlog', run: () => setView('tasks'), rank: 30 },

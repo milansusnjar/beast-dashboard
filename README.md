@@ -20,7 +20,8 @@ your projects and it gives you:
 - **Start / stop anything** — dev servers, tests, builds, docker compose — each in its own tmux
   session with live, colour-preserving logs. A dev server that dies raises a banner and a push.
 - **A terminal in the browser** (ttyd + tmux) with a phone-friendly layer: Esc/Tab/arrows/Ctrl keys,
-  paste, file upload, finger scrolling. Two devices can share the same session.
+  paste, file upload, finger scrolling. Two devices can share the same session. **＋ Terminal** picks a
+  project, the Claude account and *New* / *Resume last* in one dialog — or just a plain shell.
 - **Push notifications** to your phone and laptop when an agent finishes or needs you — tapping one
   opens that conversation, also when the app was in the background.
 - **Voice input** — tap the mic, talk, Stop: transcribed on your own server with Whisper
@@ -179,6 +180,20 @@ Another private network (a WireGuard net, a LAN)? Add its prefix to `allowedPref
 `state/settings.json`, e.g. `["10.8.0."]`. Do **not** put the dashboard on a public IP or behind
 a plain reverse proxy.
 
+The IP check alone would still let any web page open in your laptop's or phone's browser (which *is*
+on the tailnet) talk to the dashboard. So it also only answers to its own names — `localhost`, IP
+addresses, `*.ts.net`, short host names — and refuses requests from any other origin (another host
+*or another port*, `Sec-Fetch-Site: cross-site`); the terminal (ttyd `-O`) only accepts its websocket
+from its own origin. Reach it by another DNS name (e.g. `devbox.local`, `devbox.lan`)? Add that to
+`allowedHosts` in `state/settings.json` and restart (`systemctl --user restart beast-dash`).
+
+`-O` only stops browsers: the terminal port (7681) has no login of its own, so like the dashboard
+port it must never be reachable from outside your tailnet / LAN (keep the firewall closed).
+
+**Upgrading from 1.1.x:** `git pull && ./install.sh` (re-installs the units, so the terminal gets
+`-O`). If the page now says *forbidden (unknown Host)*, you open it by a name that isn't an IP,
+`localhost` or `*.ts.net` — add it to `allowedHosts` as above.
+
 ### On a VPS
 
 Same steps. `./install.sh` works on any systemd distro as an unprivileged user; it needs `sudo`
@@ -261,7 +276,7 @@ read-only and *Resume here*.
   History.
 - **Tasks** — your backlog, per project, with attachments that survive restarts.
 - **Terminals** — the terminal panel with a session list; `t`, `n` (next session that needs you),
-  `s` (new shell), `1-9` switch. Inside a terminal: `Ctrl+Shift+←/→` switch, `Ctrl+Shift+↑` back.
+  `s` (new terminal), `1-9` switch. Inside a terminal: `Ctrl+Shift+←/→` switch, `Ctrl+Shift+↑` back.
 - **⌘K / Ctrl+K** — jump to any session or project, start Claude, run actions, search conversations.
 
 - **Tunnels** (⚙ → Tunnels) — loopback-only ports of running projects are forwarded onto the
@@ -284,6 +299,7 @@ Everything lives in `state/` (gitignored) and is edited through ⚙ Settings, wh
 | `sshHost`, `sshUser` | `''` | your laptop's ssh alias for this server (VS Code links, copied commands) |
 | `publicHost` | auto | host used in generated links (defaults to the Tailscale IPv4) |
 | `allowedPrefixes` | `[]` | extra client IP prefixes to accept, e.g. `["10.8.0."]` |
+| `allowedHosts` | `[]` | extra host names the dashboard answers to (besides localhost, IPs, `*.ts.net`, `publicHost`), e.g. `["devbox.lan"]` |
 | `autoExpose` | `true` | forward loopback ports onto the tailnet with socat |
 | `autoRestore` | `false` | bring Claude sessions back automatically after a reboot |
 | `accountLabels` | `{personal: 'Personal', company: 'Company'}` | display names of the two Claude logins (`~/.claude`, `~/.claude-company`) |
@@ -327,7 +343,7 @@ lib/usage.js         transcript cost        lib/limits.js   plan limits
 lib/schedule.js      timed prompts          lib/tasks.js    task backlog
 lib/gitinfo.js       git status/diffs       lib/files.js    file tree / editor
 lib/expose.js        socat forwards         lib/push.js     Web Push (VAPID + aes128gcm, no deps)
-lib/health.js        port health            lib/sys.js      system stats (24 h history)
+lib/health.js        port health            lib/sys.js      system stats (temps kept 30 days, /api/temps?days=N)
 lib/recap.js         per-day recap from git log + transcripts
 public/              the UI — vanilla JS, one file
 term/                ttyd's page + the phone layer (build with bin/build-term-index.sh)
