@@ -1287,6 +1287,9 @@ body.recording .ckeys > :not(.mic) { pointer-events: none; opacity: .4; }
 .recov-text { max-height: 40vh; min-height: 88px; touch-action: pan-y; overflow-y: auto; font-size: 15px; line-height: 1.45; color: var(--text); white-space: pre-wrap; overscroll-behavior: contain; }
 .recov-stop { width: 100%; height: 50px; font-size: 16px; font-weight: 700; color: #fff; background: #dc2626; border: 0; border-radius: 12px; display: flex; align-items: center; justify-content: center; gap: 10px; }
 .recov-stop:active { transform: scale(.98); }
+.recwave { display: flex; align-items: center; justify-content: center; gap: 3px; height: 60px; margin-top: 6px; }
+.recwave i { flex: 0 1 4px; min-width: 2px; height: 100%; border-radius: 2px; background: #f87171; transform: scaleY(.06); transition: transform 60ms linear; }
+.recwave-hint { text-align: center; font-size: 13px; margin-top: 10px; }
 .recov-stop .sq { width: 14px; height: 14px; background: #fff; border-radius: 3px; }
 
 /* heavy processes on Home */

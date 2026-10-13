@@ -327,7 +327,11 @@ recording is buffered), and it exits a minute after the last use, so the GPU isn
 - On a GPU (`large-v3-turbo`) a 30 s recording transcribes in well under a second; idle, the loaded model
   costs a few hundred MB of RAM and ~2 GB of VRAM, nothing else.
 - The recording sheet covers the page: *Starting mic…* until the microphone is really live, then a beep —
-  iOS takes a moment (and home-screen apps ask for the mic again after being killed).
+  iOS takes a moment (and home-screen apps ask for the mic again after being killed). While you talk, a
+  level wave moves with your voice.
+- No streaming: the whole recording goes to Whisper once, on **Stop**, and the text lands in the message
+  box for you to fix and send. One pass over the full audio is more accurate than re-transcribing a
+  half-finished recording, and the GPU only works for that one pass.
 
 Without it the mic uses the browser's own speech recognition (Safari / Chrome).
 

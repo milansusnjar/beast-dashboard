@@ -124,6 +124,7 @@ async function renderChatPane(force) {
   let t; try { t = await api(`transcript/${encodeURIComponent(name)}?n=${TERM.chatN}`); } catch (e) { TERM.chatEv.busy = false; pane.replaceChildren(h('div', { class: 'dim', style: 'padding:20px' }, e.message, ' — this session has no transcript yet; use the terminal.')); return; }
   TERM.chatEv.busy = false;
   if (TERM.active !== name) return;
+  if (document.body.classList.contains('recording')) return;   // never rebuild the reply box under a running recording; the next poll catches up
   const cl = claudeOf(name) || {}; const key = [name, t.size, t.total, cl.state, cl.lastTool, TERM.chatN, (PENDING[name] || []).length, queuedKey(name), (cl.status || '').split(' (')[0], t.pending || ''].join(':');
   if (!force && TERM.chatEv.key === key) { const st = pane.querySelector('.ag-status'); if (st && cl.status) st.textContent = cl.status; return; }   // same turn: just tick Claude's status line
   TERM.chatEv.key = key;
@@ -946,6 +947,7 @@ async function renderSessionDrawer(full = true) {
     const body = d.querySelector('.db.sess'); if (!body || SESS.tab !== 'transcript' || SESS.busy) return; SESS.busy = true;
     let t; try { t = await api(`transcript/${encodeURIComponent(name)}?n=${SESS.n}`); } catch { SESS.busy = false; return; } SESS.busy = false;
     if (SESS.name !== name) return;
+    if (document.body.classList.contains('recording')) return;   // same as the chat pane: not while recording
     const key = [name, t.size, t.total, cl.state, cl.lastTool, SESS.n, (PENDING[name] || []).length, queuedKey(name), (cl.status || '').split(' (')[0], t.pending || ''].join(':'); if (SESS.key === key) { const st = body.querySelector('.ag-status'); if (st && cl.status) st.textContent = cl.status; return; } SESS.key = key;
     renderConversation(body, name, t, { n: SESS.n, more: () => { SESS.n = Math.min(200, SESS.n * 2); renderSessionDrawer(); }, refresh: () => renderSessionDrawer(false) });
     return;
@@ -1037,7 +1039,7 @@ function renderConversation(box, name, t, o) {
   fileIn.addEventListener('change', async () => { const f = fileIn.files[0]; fileIn.value = ''; if (!f) return; try { const p = await uploadFile(f); ta.value = (ta.value ? ta.value.replace(/\s*$/, ' ') : '') + p + ' '; grow(); ta.focus(); toast('attached — describe what to do with it and send', 'ok'); } catch (e) { toast('upload failed: ' + e.message, 'err'); } });
   const attach = h('button', { class: 'btn sm ghost qk', title: 'attach a file — photo, screenshot, CSV, PDF, anything up to 100 MB', onclick: () => fileIn.click() }, ico('clip', 15));
   // 🎤 hold to talk (Web Speech API; Safari + Chrome): release sends
-  const mic = voiceButton(ta, grow, name);
+  const mic = voiceButton(ta, name);
   const clock = h('button', { class: 'btn sm ghost qk', title: 'schedule this message for later (or a chain of messages)', onclick: () => scheduleDialog(name, ta.value) }, ico('clock', 15));
   const jobs = (S.claude?.schedule || []).filter(j => j.session === name && j.state !== 'done' && j.state !== 'failed');
   const keys = h('div', { class: 'ckeys' }, attach, mic, clock, fileIn,
@@ -1088,7 +1090,7 @@ let actx = null;
 function beep(freq = 880, ms = 140) { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === 'suspended') actx.resume(); const o = actx.createOscillator(), g = actx.createGain(); o.frequency.value = freq; o.connect(g); g.connect(actx.destination); const t = actx.currentTime; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.25, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + ms / 1000); o.start(t); o.stop(t + ms / 1000 + 0.02); } catch {} }
 async function whisperUp() { if (Date.now() - WHISPER.at < 60000) return WHISPER.ok; WHISPER.at = Date.now(); try { const r = await fetch('/api/transcribe', { cache: 'no-store' }); WHISPER.ok = r.ok && (await r.json()).ok === true; } catch { WHISPER.ok = false; } return WHISPER.ok; }
 whisperUp();
-function voiceButton(ta, grow, chatKey) {
+function voiceButton(ta, chatKey) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const canRec = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
   if (!SR && !canRec) return null;
@@ -1098,7 +1100,7 @@ function voiceButton(ta, grow, chatKey) {
   // for as long as we are recording, keeping what was already recognised. One recogniser is reused per page so
   // iOS asks for the microphone as rarely as it lets us (a home-screen app still forgets it on every launch).
   const b = h('button', { class: 'btn sm ghost qk mic', title: 'record — tap, talk, then Stop (the text lands in the message box; you send it)' }, ico('mic', 18));
-  let rec = null, base = '', final = '', interim = '', active = false, restarts = [], settle = null;
+  let rec = null, final = '', interim = '', active = false, restarts = [], settle = null;
   // while recording: a sheet over the bottom of the screen — red dot + timer, the words as they come in (always
   // scrolled to the newest), one big Stop. The textarea fills too and is kept scrolled to the end.
   let ov = null, ovText = null, ovTime = null, ovTimer = null, t0 = 0, ovStatus = null;
@@ -1121,7 +1123,7 @@ function voiceButton(ta, grow, chatKey) {
     ovTimer = setInterval(() => { const s = Math.floor((Date.now() - t0) / 1000); ovTime.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }, 500);
   };
   const escStop = ev => { if (ev.key === 'Escape' && active) { ev.preventDefault(); ev.stopPropagation(); finish(); } };
-  const closeOverlay = () => { clearInterval(ovTimer); if (ov) ov.remove(); ov = null; ovText = null; ovStatus = null; document.removeEventListener('keydown', escStop, true); };
+  const closeOverlay = () => { stopWave(); clearInterval(ovTimer); if (ov) ov.remove(); ov = null; ovText = null; ovStatus = null; document.removeEventListener('keydown', escStop, true); };
   const show = () => {
     if (ovText) { const said = (final + interim).trim(); ovText.replaceChildren(said ? h('span', null, final, h('span', { class: 'dim' }, interim)) : h('span', { class: 'dim' }, 'listening…')); ovText.scrollTop = ovText.scrollHeight; }
   };
@@ -1143,15 +1145,16 @@ function voiceButton(ta, grow, chatKey) {
     return rec;
   };
   const begin = () => {
-    active = true; clearTimeout(settle); base = ta.value ? ta.value.replace(/\s*$/, ' ') : ''; final = ''; interim = ''; restarts = [];
+    active = true; clearTimeout(settle); final = ''; interim = ''; restarts = [];
     b.classList.add('rec'); document.body.classList.add('recording'); openOverlay();
     if (canRec && WHISPER.ok) { startWhisper(); return; }
     if (!SR) { toast('voice: Whisper on the server is not running', 'err'); finish(); return; }
     try { ensure().start(); } catch (e) { try { rec.abort(); } catch {} rec = null; try { ensure().start(); } catch { toast('voice unavailable', 'err'); finish(); } }
   };
-  // ---- Whisper engine: record with MediaRecorder; every ~2.5 s the whole recording so far goes to the server for a
-  // live preview (one request in flight at a time), and on Stop once more for the final text ----
-  let stream = null, mr = null, chunks = [], mime = '', inflight = false, liveTimer = null, gen = 0, whisperOn = false;
+  // ---- Whisper engine: record the whole thing with MediaRecorder; on Stop the one audio file goes to the server and
+  // the text lands in the message box to check / fix / send. No live preview: re-transcribing a half-finished
+  // recording every few seconds showed wrong words and kept the GPU busy while you talked. ----
+  let stream = null, mr = null, chunks = [], mime = '', gen = 0, whisperOn = false;
   const whisperSend = async () => {
     const blob = new Blob(chunks, { type: mime || 'audio/webm' }); if (blob.size < 2000) return null;
     const r = await fetch('/api/transcribe?lag=' + lag + (vlang() ? '&lang=' + vlang() : ''), { method: 'POST', body: blob, headers: { 'content-type': 'application/octet-stream' } });
@@ -1168,13 +1171,30 @@ function voiceButton(ta, grow, chatKey) {
     mime = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm'].find(t => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || '';
     mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined); mime = mr.mimeType || mime;
     mr.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
-    mr.onstart = () => { lag = Date.now() - tapAt; if (my === gen) { micStatus(true); beep(); } };   // only now is the mic really recording
+    mr.onstart = () => { lag = Date.now() - tapAt; if (my === gen) { micStatus(true); beep(); startWave(); } };   // only now is the mic really recording
     mr.start(1000);
-    liveTimer = setInterval(async () => {
-      if (inflight || !active || my !== gen) return; inflight = true;
-      try { const j = await whisperSend(); if (j && active && my === gen) { final = j.text ? j.text + ' ' : ''; interim = ''; show(); } } catch {} finally { inflight = false; }
-    }, 2500);
+    if (ovText) ovText.replaceChildren(h('span', { class: 'dim' }, 'Talk — the text appears in the message box after Stop.'));
   }
+  // Level meter while recording: bars scroll right-to-left with the mic's loudness (an analyser on the same stream,
+  // never connected to the speakers). actx was resumed in the tap, so iOS lets it run.
+  let waveRaf = 0, waveSrc = null;
+  function startWave() {
+    if (!ovText || !stream) return;
+    const N = 40, lv = new Array(N).fill(0), bars = Array.from({ length: N }, () => h('i'));
+    const wave = h('div', { class: 'recwave' }, ...bars);
+    ovText.replaceChildren(wave, h('div', { class: 'dim recwave-hint' }, 'Talk — the text appears in the message box after Stop.'));
+    let an = null, buf = null;
+    try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === 'suspended') actx.resume(); waveSrc = actx.createMediaStreamSource(stream); an = actx.createAnalyser(); an.fftSize = 1024; waveSrc.connect(an); buf = new Float32Array(an.fftSize); } catch { an = null; }
+    let last = 0;
+    const tick = t => {
+      if (!wave.isConnected) return stopWave();
+      waveRaf = requestAnimationFrame(tick); if (t - last < 60) return; last = t;
+      let v = 0; if (an) { an.getFloatTimeDomainData(buf); let sq = 0; for (let i = 0; i < buf.length; i++) sq += buf[i] * buf[i]; v = Math.min(1, Math.max(0, Math.sqrt(Math.sqrt(sq / buf.length)) * 2.4 - 0.1)); }
+      lv.push(v); lv.shift(); for (let i = 0; i < N; i++) bars[i].style.transform = `scaleY(${Math.max(0.06, lv[i])})`;
+    };
+    waveRaf = requestAnimationFrame(tick);
+  }
+  function stopWave() { cancelAnimationFrame(waveRaf); waveRaf = 0; try { waveSrc && waveSrc.disconnect(); } catch {} waveSrc = null; }
   // Asleep -> "Waking Whisper…" with a spinner until it answers, then a short beep + "Ready — talk". Awake -> ready right away,
   // with how long until it sleeps again.
   async function wakeWhisper(my) {
@@ -1190,10 +1210,12 @@ function voiceButton(ta, grow, chatKey) {
     if (active && my === gen) note('Whisper did not wake up');
   }
   async function stopWhisper() {
-    clearInterval(liveTimer); const my = gen; if (!mr) { whisperOn = false; return; }
+    const my = gen; stopWave(); if (!mr) { whisperOn = false; return; }
     await new Promise(res => { mr.onstop = res; try { mr.state !== 'inactive' ? mr.stop() : res(); } catch { res(); } });
     stream && stream.getTracks().forEach(t => t.stop()); stream = null; mr = null;
-    try { const j = await whisperSend(); if (my === gen && j) { final = j.text ? j.text + ' ' : ''; interim = ''; } } catch (e) { toast('Whisper: ' + e.message, 'err'); }
+    // one retry after a short pause, so a hiccup (Whisper still waking, the phone switching networks) doesn't lose the recording
+    let j = null; try { j = await whisperSend(); } catch { await new Promise(r => setTimeout(r, 1500)); try { j = await whisperSend(); } catch (e) { toast('Whisper: ' + e.message + ' — recording not transcribed', 'err'); } }
+    if (my === gen && j) { final = j.text ? j.text + ' ' : ''; interim = ''; }
     whisperOn = false;
   }
   function finish() {
@@ -1203,7 +1225,17 @@ function voiceButton(ta, grow, chatKey) {
     const done = () => { document.body.classList.remove('recording'); closeOverlay(); };
     if (whisperOn && ov) { clearInterval(ovTimer); const sb = ov.querySelector('.recov-stop'); if (sb) { sb.disabled = true; sb.replaceChildren(h('span', { class: 'spin' }), 'Finishing…'); } if (ovStatus) ovStatus.replaceChildren(h('span', { class: 'dim' }, 'Whisper is writing it down')); }
     else done();
-    const settleText = () => { if (interim) { final += interim.trim() + ' '; interim = ''; } ta.value = (base + final).trim() ? base + final : ta.value; grow(); ta.focus({ preventScroll: true }); ta.setSelectionRange(ta.value.length, ta.value.length); ta.scrollTop = ta.scrollHeight; if (ta.value.trim()) toast('check the text, then send', 'ok'); };
+    // The box this button was made with can be gone: a re-render (Claude working, a state change, the phone waking)
+    // builds a new one. Write into the box of this chat that is on screen now; no box -> the chat's saved draft.
+    const settleText = () => {
+      if (interim) { final += interim.trim() + ' '; interim = ''; }
+      if (!final.trim()) return;
+      const box = ta.isConnected ? ta : [...document.querySelectorAll('[data-chat] .creply')].find(x => x.closest('[data-chat]').dataset.chat === chatKey);
+      const add = v => (v.trim() ? v.replace(/\s*$/, ' ') : '') + final;
+      if (!box) { saveDraft(chatKey, add(loadDraft(chatKey))); toast('saved in the chat\'s draft — open the chat to send it', 'ok'); return; }
+      box.value = add(box.value); box.dispatchEvent(new Event('input'));   // that box's own grow(): height + saved draft
+      box.focus({ preventScroll: true }); box.setSelectionRange(box.value.length, box.value.length); box.scrollTop = box.scrollHeight; toast('check the text, then send', 'ok');
+    };
     // Whisper: the final pass over the whole recording. Browser engine: the last result lands a moment after stop().
     if (whisperOn) { stopWhisper().then(() => { done(); settleText(); }); return; }
     try { rec && rec.stop(); } catch {}
