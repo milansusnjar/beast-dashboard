@@ -491,6 +491,13 @@ async function api(req, res, url) {
   if (m === 'GET' && parts[0] === 'temps') return json(res, 200, sys.tempsHistory(Number(url.searchParams.get('days')) || 1));
   if (m === 'GET' && parts[0] === 'recap') { const off = Math.max(0, Math.min(6, +(url.searchParams.get('day') || 0))); return json(res, 200, await recap.recap(off, projects, usage.files(), cwd => rt.attributeTo(projects, cwd))); }
   if (m === 'GET' && parts[0] === 'claude' && parts[1] === 'sessions') return json(res, 200, claude.all());
+  if (m === 'GET' && parts[0] === 'transcript-tool') { // one tool call in full (opened in the chat): ?session=<tmux> or ?file=<transcript>, &id=<tool_use id>
+    const id = url.searchParams.get('id') || ''; if (!/^[A-Za-z0-9_-]{6,80}$/.test(id)) return json(res, 400, { error: 'bad id' });
+    let file = url.searchParams.get('file') || '';
+    if (file) { if (!search.isTranscript(file)) return json(res, 400, { error: 'not a transcript' }); }
+    else { const r = claude.get(url.searchParams.get('session') || ''); if (!r || !r.transcriptPath) return json(res, 404, { error: 'no transcript' }); file = r.transcriptPath; }
+    const t = transcript.tool(file, id); return json(res, t.error ? 404 : 200, t);
+  }
   if (m === 'GET' && parts[0] === 'transcript' && parts[1]) { // last N turns of a Claude session, by tmux name
     const r = claude.get(decodeURIComponent(parts[1])); if (!r || !r.transcriptPath) return json(res, 404, { error: 'no transcript known for this session yet (it appears after its first hook event)' });
     return json(res, 200, { ...transcript.tail(r.transcriptPath, Math.min(200, +url.searchParams.get('n') || 40)), touched: r.touched || [], cwd: r.cwd, sessionId: r.sessionId });
@@ -627,7 +634,7 @@ async function api(req, res, url) {
       const to = from.account === 'company' ? 'personal' : 'company';
       const t = from.transcriptPath ? transcript.tail(from.transcriptPath, 12) : { turns: [] };
       const users = t.turns.filter(x => x.role === 'user').slice(-4).map(x => '- ' + x.text.replace(/\s+/g, ' ').slice(0, 300));
-      const last = [...t.turns].reverse().find(x => x.role === 'assistant' && x.text); const files = (from.touched || []).slice(0, 15).map(x => '- ' + x.path);
+      const lastA = [...t.turns].reverse().find(x => x.role === 'assistant' && transcript.turnText(x)); const last = lastA && { text: transcript.turnText(lastA) }; const files = (from.touched || []).slice(0, 15).map(x => '- ' + x.path);
       const prompt = [`Handoff from another Claude Code session in this same folder (it hit its usage limit). Continue its work.`, ``, `What I asked it recently:`, ...users, ``, last ? `Its last reply (may be incomplete):\n${last.text.slice(0, 1500)}` : '', files.length ? `\nFiles it edited in that session:\n${files.join('\n')}` : '', ``, `Start by running git status and git diff --stat here to see the uncommitted state, then continue from where it stopped. Ask me if the goal is unclear.`].filter(x => x !== null).join('\n');
       const base = path.basename(from.cwd).replace(/[^A-Za-z0-9_.-]+/g, '-'); const suffix = to === 'company' ? '-company' : '';
       let name = `claude-${base}${suffix}`; let n = 2; while (await actions.sessionExists(name)) name = `claude-${base}-${n++}${suffix}`;

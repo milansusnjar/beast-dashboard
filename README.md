@@ -52,12 +52,16 @@ nothing leaves your tailnet.
 
 ### Talk to Claude from anywhere
 
-**Chat** renders the session from its transcript: your messages on the right, Claude's on the
-left, and while it works a live turn with what it is running right now and its own status line.
+**Chat** renders the session from its transcript the way the Claude app does: your messages on the
+right; Claude's turn on the left **in order** — what it said, the tools it ran in between, what it
+said next — and while it works a live turn with what it is running right now and its own status line.
 
 ![Chat with a working session: your prompts, Claude's replies, the live turn with the running tool and Claude's status line](docs/screenshots/chat.png)
 
-Each turn keeps its tool calls folded into one line (*▸ 6 tool calls · Read, Edit, Write, Bash*).
+Consecutive tool calls fold into one quiet row (*ran a command · edited 3 files · read 2 files ›*);
+open it, then open any call: Edit / Write as a real diff with `+6 −1`, Bash with its command and
+output, an agent with its prompt and answer. Questions Claude asked you (and your answers) and its
+to-do list stay inline. **Focus** hides the tool rows and leaves the conversation.
 Open it to see exactly what Claude changed: the Edit / Write diffs and the Bash commands with their results.
 
 ![A turn with its tool calls opened: Edit diffs in red and green, the new file, the test command](docs/screenshots/chat-tools.png)
@@ -240,8 +244,9 @@ tmux are picked up too.
 
 **Talking to it.** Type in the reply box on the card (from the phone, without a terminal), or open
 the session in **Chat** mode — the conversation rendered from the transcript: your messages on
-the right, Claude's on the left, tool calls collapsed per turn (expand them for the Edit / Write
-diffs and the Bash commands), and while Claude works a live turn with what it is running and its
+the right, Claude's on the left in the order it happened, tool calls folded into rows between its
+text (open one for the Edit / Write diff, the Bash command and output, an agent's answer — loaded
+only when opened), *worked 3m 12s* at the end of each turn, and while Claude works a live turn with what it is running and its
 own status line (`✻ Testing… 4m 08s · ↓ 7.5k tokens`) plus ■ Stop. *Files edited* links to the
 diffs. `Esc`, `^C`, `y`/`n` are one tap away. **Terminal** mode is the same session as the real
 Claude Code TUI; the switch is one per device.

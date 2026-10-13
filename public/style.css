@@ -1357,3 +1357,51 @@ body.recording .ckeys > :not(.mic) { pointer-events: none; opacity: .4; }
 .ntrow { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 11px; border: 1px solid var(--hair); background: var(--fill); cursor: pointer; }
 .ntrow:hover { background: var(--fill2); border-color: var(--border2); }
 .ntn { min-width: 0; flex: 1; } .ntt { font-weight: 600; } .nts { font-size: 11.5px; color: var(--dim); }
+
+/* Claude's turn in order: text, tool rows, folded tool groups (chat + session drawer + past conversations) */
+.turn.assistant { display: flex; flex-direction: column; gap: 6px; }
+.turn.assistant > .ttext + .ttext { margin-top: 4px; }
+.trow, .tgroup { border-radius: 8px; min-width: 0; }
+.tr-sum, .tg-sum { all: unset; box-sizing: border-box; width: 100%; display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 8px; cursor: pointer; font-size: 12.5px; color: var(--muted); min-width: 0; }
+.tr-sum:hover, .tg-sum:hover { background: rgba(255,255,255,.04); color: var(--text); }
+.tr-sum:focus-visible, .tg-sum:focus-visible { outline: 2px solid var(--accent); }
+.ti { flex: none; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; border-radius: 5px; background: rgba(255,255,255,.05); font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.tl2 { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.tlab { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tsub { font-size: 11px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tmeta { flex: none; font-size: 11px; color: var(--dim); }
+.tdm { flex: none; display: inline-flex; gap: 6px; font-family: var(--mono); font-size: 11px; } .tdm .ad { color: #7fbf95; font-weight: 600; } .tdm .dl { color: #d98b84; font-weight: 600; }
+.terrx { flex: none; color: var(--red); font-weight: 700; }
+.tcar { flex: none; color: var(--dim); transition: transform .15s; font-size: 14px; line-height: 1; }
+.trow.open > .tr-sum .tcar, .tgroup.open > .tg-sum .tcar { transform: rotate(90deg); }
+.trow.err > .tr-sum .tlab { color: #e8a29b; }
+.trow.run > .tr-sum, .tgroup.run > .tg-sum { color: var(--text); }
+.tr-sum .spin, .tg-sum .spin { width: 11px; height: 11px; flex: none; }
+.tr-body, .tg-body { display: none; }
+.trow.open > .tr-body { display: flex; flex-direction: column; gap: 6px; padding: 2px 0 6px 26px; min-width: 0; }
+.tgroup.open > .tg-body { display: flex; flex-direction: column; gap: 1px; margin: 2px 0 4px 17px; padding-left: 8px; border-left: 1px solid var(--hair); }
+.mcode.tout { margin: 0; max-height: 340px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: 11.5px; }
+.mcode.tcmd { color: #c9d4e0; max-height: 160px; }
+.mcode.terr { color: #fecaca; }
+.tnone { font-size: 12px; padding: 2px 0; }
+.tdiff2 { font-family: var(--mono); font-size: 11.5px; line-height: 1.45; background: #070a0f; border: 1px solid var(--border); border-radius: 8px; max-height: 420px; overflow: auto; padding: 4px 0; }
+.tdiff2 .dhk { color: var(--dim); padding: 4px 10px 2px; font-size: 10.5px; }
+.tdiff2 .dl { white-space: pre-wrap; word-break: break-word; padding: 0 10px 0 22px; position: relative; }
+.tdiff2 .dl::before { position: absolute; left: 8px; color: var(--dim); }
+.tdiff2 .dl.add { background: rgba(127,191,149,.12); color: #c6f0d4; } .tdiff2 .dl.add::before { content: '+'; color: #7fbf95; }
+.tdiff2 .dl.del { background: rgba(217,139,132,.12); color: #f5c7c2; } .tdiff2 .dl.del::before { content: '−'; color: #d98b84; }
+.tdiff2 .dl.ctx { color: var(--muted); }
+.tprompt summary { cursor: pointer; font-size: 11.5px; color: var(--dim); }
+.tans { font-size: 13px; border-left: 2px solid rgba(217,119,87,.5); padding-left: 10px; }
+.tqa { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: 10px; background: rgba(126,166,224,.07); border: 1px solid rgba(126,166,224,.22); font-size: 12.5px; }
+.tqa .q { color: var(--text); font-weight: 600; } .tqa .a { color: #2dd4bf; padding-left: 14px; }
+.ttodo { display: flex; flex-direction: column; gap: 2px; padding: 6px 10px; border-radius: 10px; background: rgba(255,255,255,.03); border: 1px solid var(--hair); font-size: 12.5px; }
+.ttodo .td { display: flex; gap: 8px; color: var(--muted); } .ttodo .td .ck { flex: none; width: 14px; text-align: center; }
+.ttodo .td.completed { color: var(--dim); text-decoration: line-through; } .ttodo .td.completed .ck { color: #7fbf95; text-decoration: none; }
+.ttodo .td.in_progress { color: var(--text); } .ttodo .td.in_progress .ck { color: #e0916f; }
+.tdur { font-size: 11px; color: var(--dim); margin-top: 2px; }
+/* Focus: only what you said and what Claude said */
+.conv.focus .trow, .conv.focus .tgroup, .conv.focus .ttodo { display: none; }
+.conv.focus .turn.assistant:not(:has(> .ttext, > .tqa)) { display: none; }   /* a turn that was only tools */
+.cbar .btn.on { color: var(--text); background: rgba(126,166,224,.2); }
+@media (max-width: 900px) { .tr-sum, .tg-sum { padding: 7px 6px; font-size: 13px; } .trow.open > .tr-body { padding-left: 4px; } .tgroup.open > .tg-body { margin-left: 8px; padding-left: 6px; } }

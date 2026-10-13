@@ -993,16 +993,17 @@ function renderConversation(box, name, t, o) {
   const lastUser = [...t.turns].reverse().find(x => x.role === 'user');
   PENDING[name] = (PENDING[name] || []).filter(pm => Date.now() - pm.ts < 60000 && !(lastUser && lastUser.text.trim() === pm.text.trim() && (lastUser.ts || 0) >= pm.ts - 5000));
   box.innerHTML = '';
-  const bar = h('div', { class: 'logbar cbar' }, h('span', { class: 'dim' }, `${t.turns.length} of ${t.total} turns`), h('span', { style: 'flex:1' }),
-    t.total > t.turns.length ? h('button', { class: 'btn sm', onclick: o.more }, '↑ older') : null,
-    h('button', { class: 'btn sm', onclick: o.refresh }, '↻'));
   const conv = h('div', { class: 'conv' });
+  const bar = h('div', { class: 'logbar cbar' }, h('span', { class: 'dim' }, `${t.turns.length} of ${t.total} turns`), h('span', { style: 'flex:1' }),
+    t.total > t.turns.length ? h('button', { class: 'btn sm', onclick: o.more }, '↑ older') : null, focusToggle(conv),
+    h('button', { class: 'btn sm', onclick: o.refresh }, '↻'));
   for (const turn of t.turns) {
     // not something you typed: a background agent finished, you interrupted, … -> one quiet line between the turns
-    if (turn.role === 'event') { conv.append(h('div', { class: 'tevent' + (turn.status === 'failed' || turn.status === 'killed' ? ' bad' : '') }, h('span', { class: 'ic' }, turn.status === 'interrupted' ? '⏹' : turn.status === 'completed' ? '✓' : turn.status === 'failed' || turn.status === 'killed' ? '✗' : '⚙'), h('span', { class: 'tx' }, turn.status === 'interrupted' ? 'interrupted' : turn.text), turn.ts ? h('span', { class: 'dim mono' }, new Date(turn.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) : null)); continue; }
+    if (turn.role === 'event') { conv.append(h('div', { class: 'tevent' + (turn.status === 'failed' || turn.status === 'killed' ? ' bad' : '') }, h('span', { class: 'ic' }, turn.status === 'interrupted' ? '⏹' : turn.status === 'compacted' ? '⇣' : turn.status === 'completed' ? '✓' : turn.status === 'failed' || turn.status === 'killed' ? '✗' : '⚙'), h('span', { class: 'tx' }, turn.status === 'interrupted' ? 'interrupted' : turn.text), turn.ts ? h('span', { class: 'dim mono' }, new Date(turn.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) : null)); continue; }
     if (turn.role === 'shell') { conv.append(h('div', { class: 'turn user shell' }, h('div', { class: 'who' }, '❯ you · shell', turn.ts ? h('span', { class: 'dim mono' }, ' ' + new Date(turn.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) : null), h('pre', { class: 'mcode small' }, '! ' + turn.text), turn.out ? h('details', { class: 'ttools' }, h('summary', null, 'output'), h('pre', { class: 'mcode small' }, turn.out)) : null)); continue; }
-    conv.append(h('div', { class: 'turn ' + turn.role }, h('div', { class: 'who' }, turn.role === 'user' ? '❯ you' : '✦ claude', turn.ts ? h('span', { class: 'dim mono' }, ' ' + new Date(turn.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) : null),
-      turn.text ? h('div', { class: 'ttext', html: mdLite(turn.text) }) : null, toolsBlock(turn)));
+    if (turn.role === 'assistant') { conv.append(assistantTurn(turn, { session: name })); continue; }
+    conv.append(h('div', { class: 'turn ' + turn.role }, h('div', { class: 'who' }, '❯ you', turn.ts ? h('span', { class: 'dim mono' }, ' ' + new Date(turn.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) : null),
+      turn.text ? h('div', { class: 'ttext', html: mdLite(turn.text) }) : null));
   }
   // "send when free" messages waiting in the queue: shown as your next turn, with Send now / Cancel
   const queued = (S.claude?.schedule || []).filter(j => j.session === name && j.whenFree && j.state === 'waiting');
@@ -1060,13 +1061,94 @@ function renderConversation(box, name, t, o) {
 }
 const trim1 = (s, n) => s.length > n ? s.slice(0, n) + '…' : s;
 // tool calls of one turn, with Edit/Write diffs and Bash commands inline
-function toolsBlock(turn) {
-  if (!turn.tools.length) return null;
-  return h('details', { class: 'ttools' }, h('summary', null, `${turn.tools.length} tool call${turn.tools.length === 1 ? '' : 's'}`, ' · ', trim1(turn.tools.map(x => x.name).filter((v, i, a) => a.indexOf(v) === i).join(', '), 60)),
-    h('div', { class: 'tlist' }, turn.tools.map(x => h('div', { class: 'tli' + (x.error ? ' err' : '') },
-      h('div', { class: 'tl' }, h('span', { class: 'tn mono' }, x.name), h('span', { class: 'tw' }, x.what), x.result ? h('span', { class: 'tr dim', title: x.result }, '→ ' + x.result) : null),
-      x.cmd ? h('pre', { class: 'mcode small' }, '$ ' + x.cmd) : null,
-      x.diff ? h('div', { class: 'tdiff' }, x.diff.old ? h('pre', { class: 'del' }, x.diff.old) : null, x.diff.new ? h('pre', { class: 'add' }, x.diff.new) : null) : null))));
+// ---------- Claude's turn, in order: its text, then the tools it ran, then more text … (like the Claude app) ----------
+// Consecutive tool calls fold into one quiet row ("ran 3 commands · edited 2 files ▸"); each call opens on its own and
+// loads its full input/output (diff, command output, an agent's answer) only then. What's open survives re-renders.
+const CHAT = { open: new Set(), detail: new Map(), liveAt: new Map(), focus: (() => { try { return localStorage.getItem('bd.chat.focus') === '1'; } catch { return false; } })() };
+const fileBase = p => String(p || '').split('/').pop();
+const durTxt = ms => { const s = Math.round(ms / 1000); return s < 60 ? s + 's' : s < 3600 ? Math.floor(s / 60) + 'm ' + String(s % 60).padStart(2, '0') + 's' : Math.floor(s / 3600) + 'h ' + Math.floor(s % 3600 / 60) + 'm'; };
+// one tool call -> { icon, label, sub, meta, cat }; cat drives the group summary
+function toolLook(t) {
+  const n = t.name || '';
+  if (n === 'Bash' || n === 'PowerShell') return { icon: '$', label: t.desc || t.cmd || 'command', sub: t.desc ? t.cmd : '', meta: t.bg ? 'background' : '', cat: 'cmd' };
+  if (n === 'Read') return { icon: '◱', label: 'Read ' + fileBase(t.file), meta: t.image ? 'image' : t.lines ? t.lines + ' lines' : '', cat: 'read', title: t.file };
+  if (n === 'Edit' || n === 'MultiEdit') return { icon: '✎', label: 'Edit ' + fileBase(t.file), diff: t, cat: 'edit', title: t.file };
+  if (n === 'Write') return { icon: '✎', label: (t.created ? 'Create ' : 'Write ') + fileBase(t.file), diff: t, cat: 'edit', title: t.file };
+  if (n === 'NotebookEdit') return { icon: '✎', label: 'Edit ' + fileBase(t.file), cat: 'edit' };
+  if (n === 'Grep' || n === 'Glob') return { icon: '⌕', label: (n === 'Grep' ? 'Search ' : 'Find ') + t.pattern, meta: t.count != null ? t.count + (n === 'Glob' ? ' files' : ' hits') : '', cat: 'search' };
+  if (n === 'Agent' || n === 'Task') return { icon: '✦', label: 'Agent · ' + (t.desc || 'subagent'), meta: [t.sub, t.bg ? 'background' : ''].filter(Boolean).join(' · '), cat: 'agent' };
+  if (n === 'WebSearch') return { icon: '⌕', label: 'Web search · ' + t.query, cat: 'web' };
+  if (n === 'WebFetch') { let host = t.url; try { host = new URL(t.url).host; } catch {} return { icon: '↗', label: 'Fetch ' + host, cat: 'web', title: t.url }; }
+  if (n === 'TodoWrite') return { icon: '☑', label: 'Updated the to-do list', cat: 'other', tag: 'to-do list' };
+  if (n === 'Skill') return { icon: '◆', label: t.what || 'Skill', cat: 'other', tag: 'a skill' };
+  const mcp = n.match(/^mcp__(.+?)__(.+)$/); if (mcp) { const srv = mcp[1].replace(/^claude[-_]in[-_]/, '').replace(/^claude_ai_/, '').replace(/_/g, ' '); return { icon: '⚙', label: srv + ' · ' + mcp[2].replace(/_/g, ' '), cat: 'other', tag: srv }; }
+  return { icon: '⚙', label: t.what || n, cat: 'other', tag: n };
+}
+function groupSummary(tools) {
+  const c = {}, tags = []; for (const t of tools) { const L = toolLook(t); c[L.cat] = (c[L.cat] || 0) + 1; if (L.tag && !tags.includes(L.tag)) tags.push(L.tag); }
+  const pl = (k, one, many) => c[k] ? (c[k] === 1 ? one : many.replace('#', c[k])) : null;
+  return [pl('cmd', 'ran a command', 'ran # commands'), pl('edit', 'edited a file', 'edited # files'), pl('read', 'read a file', 'read # files'), pl('search', 'searched', '# searches'), pl('agent', 'started an agent', 'started # agents'), pl('web', 'looked something up', '# web lookups'), c.other ? 'used ' + tags.slice(0, 2).join(', ') + (tags.length > 2 ? ' +' + (tags.length - 2) : '') : null].filter(Boolean).join(' · ');
+}
+const diffMeta = t => t.add != null || t.del ? h('span', { class: 'tdm' }, t.add ? h('b', { class: 'ad' }, '+' + t.add) : null, t.del ? h('b', { class: 'dl' }, '−' + t.del) : null) : null;
+function toolDetailView(d) {
+  if (d.error && !d.name) return h('div', { class: 'dim' }, d.error);
+  const pre = (txt, cls = '') => h('pre', { class: 'mcode tout ' + cls }, txt);
+  if (d.name === 'Bash' || d.name === 'PowerShell') return [pre('$ ' + d.cmd, 'tcmd'), d.out ? pre(d.out) : h('div', { class: 'dim tnone' }, d.done ? 'no output' : 'running…')];
+  if (d.hunks) return [h('div', { class: 'tdiff2' }, d.hunks.map(hk => [h('div', { class: 'dhk' }, '@@ line ' + (hk.n || hk.o || 1)), hk.lines.map(l => h('div', { class: 'dl ' + (l[0] === '+' ? 'add' : l[0] === '-' ? 'del' : 'ctx') }, l.slice(1) || ' '))]), d.more ? h('div', { class: 'dim tnone' }, '… more changes not shown') : null), d.out ? pre(d.out, 'terr') : null];
+  if (d.name === 'Agent' || d.name === 'Task') return [h('details', { class: 'tprompt' }, h('summary', null, 'prompt'), pre(d.prompt)), d.out ? h('div', { class: 'ttext tans', html: mdLite(d.out) }) : h('div', { class: 'dim tnone' }, 'working…')];
+  if (d.qa) return h('div', { class: 'tqa' }, d.qa.map(x => h('div', null, h('div', { class: 'q' }, x.q), h('div', { class: 'a' }, x.a || '—'))));
+  return [d.input && d.input !== '{}' ? pre(d.input) : null, d.out ? pre(d.out) : d.image ? h('div', { class: 'dim tnone' }, 'image') : null];
+}
+function toolRow(t, ctx) {
+  const L = toolLook(t); const key = t.id; const open = CHAT.open.has(key);
+  const st = !t.done && !t.stale ? h('span', { class: 'spin' }) : t.error ? h('span', { class: 'terrx' }, '✗') : null;
+  const body = h('div', { class: 'tr-body' });
+  const row = h('div', { class: 'trow' + (open ? ' open' : '') + (t.error ? ' err' : '') + (!t.done && !t.stale ? ' run' : '') });
+  const load = async () => {
+    const cached = CHAT.detail.get(key); if (cached) { body.replaceChildren(...[toolDetailView(cached)].flat(2).filter(Boolean)); if (cached.done || !t.done && CHAT.liveAt.get(key) > Date.now() - 8000) return; }   // running: refresh at most every 8 s
+    else body.replaceChildren(h('div', { class: 'dim tnone' }, 'loading…'));
+    try { const q = ctx.file ? 'file=' + encodeURIComponent(ctx.file) : 'session=' + encodeURIComponent(ctx.session); CHAT.liveAt.set(key, Date.now()); const d = await api(`transcript-tool?${q}&id=${encodeURIComponent(t.id)}`); CHAT.detail.set(key, d); if (body.isConnected) body.replaceChildren(...[toolDetailView(d)].flat(2).filter(Boolean)); }
+    catch (e) { body.replaceChildren(h('div', { class: 'dim tnone' }, e.message)); }
+  };
+  const sum = h('button', { class: 'tr-sum', title: L.title || '', onclick: () => { const o = !row.classList.contains('open'); row.classList.toggle('open', o); if (o) { CHAT.open.add(key); load(); } else CHAT.open.delete(key); } },
+    h('span', { class: 'ti' }, L.icon), h('span', { class: 'tl2' }, h('span', { class: 'tlab' }, L.label), L.sub ? h('span', { class: 'tsub mono' }, L.sub) : null),
+    L.diff ? diffMeta(L.diff) : null, L.meta ? h('span', { class: 'tmeta' }, L.meta) : null, st, h('span', { class: 'tcar' }, '›'));
+  row.append(sum, body); if (open) load();
+  return row;
+}
+// inline, never folded: what Claude asked you and what you answered; its to-do list
+function inlineTool(t) {
+  if (t.name === 'AskUserQuestion') return h('div', { class: 'tqa' }, (t.qs || []).map((q, i) => h('div', null, h('div', { class: 'q' }, '？ ' + q), h('div', { class: 'a' }, t.answers ? (t.answers[i] || '—') : t.done ? '—' : 'waiting for your answer…'))));
+  if (t.name === 'TodoWrite' && t.todos) return h('div', { class: 'ttodo' }, t.todos.map(x => h('div', { class: 'td ' + x.s }, h('span', { class: 'ck' }, x.s === 'completed' ? '✓' : x.s === 'in_progress' ? '→' : '○'), x.c)));
+  return null;
+}
+function assistantTurn(turn, ctx) {
+  const el = h('div', { class: 'turn assistant' }, h('div', { class: 'who' }, '✦ claude', turn.ts ? h('span', { class: 'dim mono' }, ' ' + new Date(turn.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) : null));
+  const steps = turn.steps || []; let run = [];
+  const flush = () => {
+    if (!run.length) return; const tools = run; run = [];
+    if (tools.length === 1) { el.append(toolRow(tools[0], ctx)); return; }
+    const key = 'g:' + tools[0].id; const live = tools.some(t => !t.done && !t.stale); if (tools.some(t => CHAT.open.has(t.id))) CHAT.open.add(key); const open = CHAT.open.has(key);
+    const g = h('div', { class: 'tgroup' + (open ? ' open' : '') + (live ? ' run' : '') });
+    const body = h('div', { class: 'tg-body' }, tools.map(t => toolRow(t, ctx)));
+    const cur = live ? tools.filter(t => !t.done && !t.stale).pop() : null;
+    g.append(h('button', { class: 'tg-sum', onclick: () => { const o = !g.classList.contains('open'); g.classList.toggle('open', o); o ? CHAT.open.add(key) : CHAT.open.delete(key); } },
+      h('span', { class: 'ti' }, '⋯'), h('span', { class: 'tl2' }, h('span', { class: 'tlab' }, groupSummary(tools)), cur ? h('span', { class: 'tsub' }, toolLook(cur).label) : null),
+      h('span', { class: 'tmeta' }, tools.length + ' steps'), tools.some(t => t.error) ? h('span', { class: 'terrx' }, '✗') : null, live ? h('span', { class: 'spin' }) : null, h('span', { class: 'tcar' }, '›')), body);
+    el.append(g);
+  };
+  for (const st of steps) {
+    if (st.k === 'text') { flush(); el.append(h('div', { class: 'ttext', html: mdLite(st.text) })); continue; }
+    const inl = inlineTool(st); if (inl) { flush(); el.append(inl); continue; }
+    run.push(st);
+  }
+  flush();
+  if (turn.dur) el.append(h('div', { class: 'tdur' }, 'worked ' + durTxt(turn.dur)));
+  return el;
+}
+function focusToggle(conv) {
+  conv.classList.toggle('focus', CHAT.focus);
+  return h('button', { class: 'btn sm ghost' + (CHAT.focus ? ' on' : ''), title: 'Focus: only your messages and Claude\'s replies — tool calls hidden', onclick: ev => { CHAT.focus = !CHAT.focus; try { localStorage.setItem('bd.chat.focus', CHAT.focus ? '1' : '0'); } catch {} conv.classList.toggle('focus', CHAT.focus); ev.currentTarget.classList.toggle('on', CHAT.focus); } }, 'Focus');
 }
 const UPLOAD_MAX_MB = 100;   // same as the server
 // images: downscaled to 1568px on the long edge (what Claude uses anyway); anything else raw, keeping its name. Returns the server path.
@@ -1354,7 +1436,11 @@ async function openTranscriptFile(hh) {
   let t; try { t = await api(`transcript?file=${encodeURIComponent(hh.file)}&n=60`); } catch (e) { body.replaceChildren(h('div', { class: 'dim', style: 'padding:20px' }, e.message)); return; }
   body.innerHTML = ''; const scroller = h('div', { class: 'cscroll' }); body.append(scroller);
   const conv = h('div', { class: 'conv' });
-  for (const turn of t.turns) conv.append(h('div', { class: 'turn ' + turn.role }, h('div', { class: 'who' }, turn.role === 'user' ? '❯ you' : '✦ claude', turn.ts ? h('span', { class: 'dim mono' }, ' ' + new Date(turn.ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })) : null), turn.text ? h('div', { class: 'ttext', html: mdLite(turn.text) }) : null, toolsBlock(turn)));
+  for (const turn of t.turns) {
+    if (turn.role === 'assistant') { conv.append(assistantTurn(turn, { file: hh.file })); continue; }
+    if (turn.role === 'event') { conv.append(h('div', { class: 'tevent' }, h('span', { class: 'ic' }, turn.status === 'compacted' ? '⇣' : '⚙'), h('span', { class: 'tx' }, turn.text))); continue; }
+    conv.append(h('div', { class: 'turn user' + (turn.role === 'shell' ? ' shell' : '') }, h('div', { class: 'who' }, turn.role === 'shell' ? '❯ you · shell' : '❯ you', turn.ts ? h('span', { class: 'dim mono' }, ' ' + new Date(turn.ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })) : null), turn.role === 'shell' ? h('pre', { class: 'mcode small' }, '! ' + turn.text) : h('div', { class: 'ttext', html: mdLite(turn.text) })));
+  }
   scroller.append(h('div', { class: 'dim', style: 'margin-bottom:8px' }, `${t.turns.length} of ${t.total} turns · read-only (no live session)`), conv);
   setTimeout(() => { scroller.scrollTop = scroller.scrollHeight; }, 0);
 }
