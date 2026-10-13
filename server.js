@@ -499,8 +499,8 @@ async function api(req, res, url) {
     const t = transcript.tool(file, id); return json(res, t.error ? 404 : 200, t);
   }
   if (m === 'GET' && parts[0] === 'transcript' && parts[1]) { // last N turns of a Claude session, by tmux name
-    const r = claude.get(decodeURIComponent(parts[1])); if (!r || !r.transcriptPath) return json(res, 404, { error: 'no transcript known for this session yet (it appears after its first hook event)' });
-    return json(res, 200, { ...transcript.tail(r.transcriptPath, Math.min(200, +url.searchParams.get('n') || 40)), touched: r.touched || [], cwd: r.cwd, sessionId: r.sessionId });
+    const r = claude.get(decodeURIComponent(parts[1])); if (!r) return json(res, 404, { error: 'no transcript known for this session yet (it appears after its first hook event)' });
+    return json(res, 200, { ...transcript.tail(r.transcriptPath || '', Math.min(200, +url.searchParams.get('n') || 40)), touched: r.touched || [], cwd: r.cwd, sessionId: r.sessionId });
   }
   if (m === 'GET' && parts[0] === 'transcript') { // any past conversation by transcript file (from search)
     const file = url.searchParams.get('file') || ''; if (!search.isTranscript(file)) return json(res, 400, { error: 'not a transcript' });

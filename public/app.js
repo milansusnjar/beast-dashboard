@@ -1005,6 +1005,7 @@ function renderConversation(box, name, t, o) {
     conv.append(h('div', { class: 'turn ' + turn.role }, h('div', { class: 'who' }, '❯ you', turn.ts ? h('span', { class: 'dim mono' }, ' ' + new Date(turn.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) : null),
       turn.text ? h('div', { class: 'ttext', html: mdLite(turn.text) }) : null));
   }
+  if (!t.turns.length && !(PENDING[name] || []).length) conv.append(h('div', { class: 'dim', style: 'padding:24px 4px' }, 'New conversation — nothing said yet. Type your first message below.'));
   // "send when free" messages waiting in the queue: shown as your next turn, with Send now / Cancel
   const queued = (S.claude?.schedule || []).filter(j => j.session === name && j.whenFree && j.state === 'waiting');
   for (const j of queued) conv.append(h('div', { class: 'turn user queued' },
