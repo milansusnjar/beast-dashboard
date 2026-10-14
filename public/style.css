@@ -244,7 +244,7 @@ input[type=checkbox] { accent-color: var(--accent); }
 .pi.on .more { display: inline-flex; }
 .pal kbd { font-size: 10px; }
 /* ================= home ================= */
-#view-home { display: flex; flex-direction: column; gap: 30px; padding: 8px 28px 0; max-width: 1480px; }
+#view-home { display: flex; flex-direction: column; gap: 30px; padding: 8px 28px 0; }
 #view-home > section:empty, .hogsec:empty { display: none; }
 .home-hero.hidden, .feat-home.hidden { display: none; }
 .banner { padding: 10px 28px 0; display: flex; flex-direction: column; gap: 8px; }
@@ -277,7 +277,7 @@ input[type=checkbox] { accent-color: var(--accent); }
 .ib.idle { color: var(--dim); background: var(--fill); }
 
 /* agent cards (desktop grid) */
-.agents { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr)); gap: 12px; align-items: stretch; }
+.agents { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(max(360px, calc((100% - 48px) / 5)), 100%), 1fr)); gap: 12px; align-items: stretch; }   /* at most 5 per row on wide screens */
 .agent { position: relative; display: flex; flex-direction: column; gap: 10px; min-width: 0; height: 100%; padding: 14px 16px 12px 18px; border-radius: var(--r); background: var(--panel); cursor: pointer; transition: background .15s; overflow: hidden; }
 .agent:hover { background: var(--panel2); }
 .agent .ag-rail { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: transparent; }
@@ -555,7 +555,6 @@ input[type=checkbox] { accent-color: var(--accent); }
 .pbar { display: flex; align-items: center; gap: 12px; padding: 8px 28px 0; flex-wrap: wrap; }
 .pbar #pbar-hint { font-size: 12.5px; color: var(--dim); }
 main { padding: 8px 28px 60px; }
-#view-projects main { max-width: 1480px; }
 .empty-main { color: var(--dim); text-align: center; padding: 60px; }
 .group { margin-top: 26px; }
 .ghead { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
