@@ -1305,3 +1305,5 @@ body.term-open .rail .navb.on { background: transparent; color: var(--muted); }
 body.term-open .rail .navb.on .ico { color: inherit; opacity: .85; }
 @media (max-width: 900px) { .runtbl .cname .sw { display: none; } }
 .tile[data-k="disk"] .v { white-space: normal; }
+.tstitle.run { display: inline-flex; padding: 0; background: none; border-radius: 0; font-size: 17px; flex-wrap: nowrap; }   /* not the .run rows of project cards */
+@media (max-width: 900px) { .tstitle.run { font-size: 16px; } }

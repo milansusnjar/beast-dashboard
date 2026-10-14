@@ -140,17 +140,39 @@
     return bar;
   }
   const legend = by => h('div', { class: 'sa-legend' }, ...FAMS.filter(f => by[f] > 0).map(f => h('span', { class: 'sa-lg' }, h('i', { class: 'sa-bg-' + f }), FAM_LABEL[f] + ' ', h('b', { class: 'mono' }, money(by[f])))));
+  // 7 days as a line: total per day (line + soft area), subagents as a thin second line; today gets a dot and its amount.
+  // Drawn in a 100 x 40 box stretched to the tile (non-scaling strokes); dots, labels and hover targets are HTML on top.
+  function lineChart(days) {
+    const tot = days.map(d => FAMS.reduce((s, f) => s + d.byFamily[f], 0)); const sub = days.map(d => d.sub || 0);
+    const max = Math.max(0.0001, ...tot) * 1.12; const n = days.length; const W = 100, H = 40;
+    const X = i => n > 1 ? i / (n - 1) * W : W / 2, Y = v => H - v / max * H;
+    const path = vs => vs.map((v, i) => i ? `C${(X(i - 1) + X(i)) / 2},${Y(vs[i - 1])} ${(X(i - 1) + X(i)) / 2},${Y(v)} ${X(i)},${Y(v)}` : `M${X(0)},${Y(v)}`).join(' ');
+    const NS = 'http://www.w3.org/2000/svg'; const el = (t, a) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); return e; };
+    const svg = el('svg', { class: 'sa-lsvg', viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', 'aria-hidden': 'true' });
+    const gid = 'sa-g' + Math.random().toString(36).slice(2, 7);
+    const grad = el('linearGradient', { id: gid, x1: 0, y1: 0, x2: 0, y2: 1 }); grad.append(el('stop', { offset: '0', class: 'sa-ga' }), el('stop', { offset: '1', class: 'sa-gb' }));
+    const defs = el('defs', {}); defs.append(grad); svg.append(defs);
+    for (const g of [0.25, 0.5, 0.75]) svg.append(el('line', { x1: 0, x2: W, y1: H * g, y2: H * g, class: 'sa-lgrid' }));
+    svg.append(el('path', { d: path(tot) + ` L${W},${H} L0,${H} Z`, fill: `url(#${gid})`, class: 'sa-larea' }), el('path', { d: path(sub), class: 'sa-lsub' }), el('path', { d: path(tot), class: 'sa-ltot' }));
+    const lbl = d => new Date(d.day + 'T12:00').toLocaleDateString([], { weekday: 'short' });
+    const tip = (d, i) => `${new Date(d.day + 'T12:00').toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'short' })} · ${money(tot[i])}` + FAMS.filter(f => d.byFamily[f] > 0).map(f => `\n${FAM_LABEL[f]} ${money(d.byFamily[f])}`).join('') + (sub[i] ? `\nsubagents ${money(sub[i])}` : '');
+    const pos = i => `left:${X(i)}%`;
+    const top = v => `top:${Y(v) / H * 100}%`;
+    const last = n - 1; const peak = tot.indexOf(Math.max(...tot));
+    return h('div', { class: 'sa-line' },
+      h('div', { class: 'sa-lplot' }, svg,
+        h('i', { class: 'sa-ldot', style: `${pos(last)};${top(tot[last])}` }),
+        h('span', { class: 'sa-lval' + (last > n * .8 ? ' end' : ''), style: `${pos(last)};${top(tot[last])}` }, money(tot[last])),
+        peak !== last && tot[peak] > 0 ? h('span', { class: 'sa-lval peak', style: `${pos(peak)};${top(tot[peak])}` }, money(tot[peak])) : null,
+        ...days.map((d, i) => h('span', { class: 'sa-lhit', style: pos(i), title: tip(d, i) }))),
+      h('div', { class: 'sa-lx' }, ...days.map((d, i) => h('span', { class: 'sa-lday' + (i === last ? ' on' : ''), style: pos(i) }, i === last ? 'Today' : lbl(d)))),
+      h('div', { class: 'sa-legend' }, h('span', { class: 'sa-lg' }, h('i', { class: 'sa-lk tot' }), 'All models'), h('span', { class: 'sa-lg' }, h('i', { class: 'sa-lk sub' }), 'Subagents')));
+  }
   function paintTile() {
     const el = T.el; const M = T.models; if (!el || !M) return;
     const sig = JSON.stringify([M, T.flagged.map(a => a.agentId)]);
     if (sig === T.sig) return; T.sig = sig;
     const today = M.days[M.days.length - 1]; const tTot = FAMS.reduce((s, f) => s + today.byFamily[f], 0); const wTot = FAMS.reduce((s, f) => s + M.totals.byFamily[f], 0);
-    const max = Math.max(0.0001, ...M.days.map(d => FAMS.reduce((s, f) => s + d.byFamily[f], 0)));
-    const cols = M.days.map(d => {
-      const t = FAMS.reduce((s, f) => s + d.byFamily[f], 0);
-      const col = h('div', { class: 'sa-col', title: d.day + ' · ' + money(t) }, h('div', { class: 'sa-colbar', style: `height:${Math.max(t > 0 ? 3 : 0, t / max * 100)}%` }, ...FAMS.slice().reverse().filter(f => d.byFamily[f] > 0).map(f => h('i', { class: 'sa-bg-' + f, style: `flex:${d.byFamily[f]}` }))), h('span', { class: 'sa-cl dim' }, new Date(d.day + 'T12:00').toLocaleDateString([], { weekday: 'narrow' })));
-      return col;
-    });
     const splitTot = M.totals.main + M.totals.sub;
     el.replaceChildren(...[
       h('div', { class: 'k' }, h('span', null, 'Cost by model'), h('span', { class: 'dim sa-note' }, 'API-equivalent')),
@@ -159,7 +181,7 @@
           h('div', { class: 'sa-lbl' }, 'Today ', h('b', { class: 'mono' }, money(tTot))), stack(today.byFamily, tTot, true), legend(today.byFamily),
           h('div', { class: 'sa-lbl', style: 'margin-top:10px' }, '7 days ', h('b', { class: 'mono' }, money(wTot))), stack(M.totals.byFamily, wTot, true), legend(M.totals.byFamily)),
         h('div', { class: 'sa-part' },
-          h('div', { class: 'sa-cols' }, ...cols),
+          lineChart(M.days),
           h('div', { class: 'sa-lbl', style: 'margin-top:10px' }, 'Main threads vs subagents (7 d)'),
           h('div', { class: 'sa-stack' }, splitTot > 0 ? h('i', { class: 'sa-bg-main', style: `flex:${M.totals.main}` }) : h('i', { class: 'sa-f-none', style: 'flex:1' }), M.totals.sub > 0 ? h('i', { class: 'sa-bg-sub', style: `flex:${M.totals.sub}` }) : null),
           h('div', { class: 'sa-legend' }, h('span', { class: 'sa-lg' }, h('i', { class: 'sa-bg-main' }), 'Main ', h('b', { class: 'mono' }, money(M.totals.main))), h('span', { class: 'sa-lg' }, h('i', { class: 'sa-bg-sub' }), 'Subagents ', h('b', { class: 'mono' }, money(M.totals.sub)))))),
