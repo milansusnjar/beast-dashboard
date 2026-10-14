@@ -81,7 +81,12 @@ kbd { font-family: var(--mono); font-size: 10.5px; border: 1px solid var(--line2
 .rnm b { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .rnm em { flex: none; font-style: normal; font-size: 11px; color: var(--dim); font-family: var(--mono); }
 .rnm em.wt { color: var(--orange); }
-.rnm em.co { font-family: var(--sans); font-weight: 600; color: var(--blue); }
+.racc, .tacc { flex: none; font-size: 10.5px; font-weight: 600; line-height: 16px; padding: 0 6px; border-radius: 5px; white-space: nowrap; }
+.racc.personal, .tacc.personal { color: var(--green); background: color-mix(in srgb, var(--green) 13%, transparent); }
+.racc.company, .tacc.company { color: var(--blue); background: color-mix(in srgb, var(--blue) 15%, transparent); }
+.rnm .racc { margin-left: auto; align-self: center; }
+.tacc { font-size: 11.5px; line-height: 20px; padding: 0 8px; border-radius: 6px; }
+.termbar .msess .tacc { font-size: 10.5px; line-height: 17px; padding: 0 6px; }
 .rsub { font-size: 11.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.35; }
 .rsub.mono { font-size: 11px; }
 .rrow.st-working .rdot { background: var(--st-work); box-shadow: 0 0 0 3px color-mix(in srgb, var(--st-work) 22%, transparent); animation: breathe 1.6s ease-in-out infinite; }
@@ -1299,7 +1304,7 @@ body.recording .ckeys > :not(.mic) { pointer-events: none; opacity: .4; }
   .termbar .btn.sm.desk:not(.projbtn) .ico { width: 16px; height: 16px; }
   .termbar { gap: 8px; }
 }
-@media (min-width: 901px) and (max-width: 1350px) { .termbar .ag-tag, .termbar .ttitle { display: none; } }
+@media (min-width: 901px) and (max-width: 1500px) { .termbar .ag-tag, .termbar .ttitle { display: none; } }
 /* while a session fills the main column, the rail highlights the session, not the view underneath */
 body.term-open .rail .navb.on { background: transparent; color: var(--muted); }
 body.term-open .rail .navb.on .ico { color: inherit; opacity: .85; }
