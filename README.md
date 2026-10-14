@@ -3,10 +3,18 @@
 **A self-hosted control room for the Linux box where your code and your AI agents live.**
 Open it from your laptop or your phone; the machine keeps working while the laptop is closed.
 
-![Home: system stats, every Claude Code session and its state, what is running](docs/screenshots/home.png)
+![Home: the agent that needs you on top, every Claude Code session, the machine, the spend, what is running](docs/screenshots/home.png)
 
 Beast Dash is one Node process with **zero npm dependencies**. Point it at the folder that holds
 your projects and it gives you:
+
+- **Two layouts, one app** — on a desktop a rail keeps every live session one click away (state,
+  what it is doing) and the session opens right beside it; on a phone a tab bar (Home · Inbox ·
+  Sessions · Projects · Tasks), agents as a list, sheets that slide up. Colour has one job: warm
+  means *waiting on you*, cool means *the machine is working*.
+- **Inbox** — every session that waits for you (done, permission prompt, error, usage limit) in one
+  sheet, each with a reply box and the mic; permission prompts get Allow / Deny. Home leads with
+  *"2 agents need you"* and their last message; `i` opens it.
 
 - **Every project on one screen** — discovered automatically (git repos, `package.json`,
   `pyproject`, `docker-compose`, Makefiles), grouped by the top-level folder they live in, with
@@ -41,6 +49,16 @@ your projects and it gives you:
 - **Downloads** — `~/Downloads` on the server in a file explorer: preview images / PDFs / text,
   tick files and download one, or several (and folders) as one zip. Ask Claude to "drop the
   report in Downloads" and grab it from your phone.
+- **Plans and progress** — a project with `docs/<topic>/PLAN.md` + `PROGRESS.md` (the way multi-step
+  agent work is often tracked) gets a progress chip on its card and a Plan tab: the checklist by
+  section, the next item, the plan itself.
+- **Git worktrees** — every worktree of a repo with ahead/behind, changes, which Claude works in it;
+  diff, merge into the base branch (aborts on conflict), remove, prune.
+- **Subagents and cost by model** — the agents a session spawned (type, model, prompt, steps, cost)
+  from the chat bar; a Home card with today's and the week's API-equivalent cost per model and main
+  threads vs subagents.
+- **Android emulator** — a live thumbnail on Home; a sheet with the screen (tap, swipe, back / home /
+  recents, typing), start and stop per AVD (optional, [below](#android-emulator-optional)).
 - **Updates itself** — open pages reload into a new build on their own when idle.
 
 It runs on a home server, a VPS or any Linux machine you can SSH into. No accounts, no cloud,
@@ -90,6 +108,10 @@ Open it to see exactly what Claude changed: the Edit / Write diffs and the Bash 
 asked, files edited, cost).
 
 ![Recap of a project: commits and two Claude sessions](docs/screenshots/recap.png)
+
+**Inbox** — everything that waits for you, answered from one place.
+
+![Inbox: a finished session with its last message, a reply box, Open chat and Send](docs/screenshots/inbox.png)
 
 ### On the phone
 
@@ -272,9 +294,13 @@ read-only and *Resume here*.
 
 ## Everyday use
 
-- **Home** — system tiles, the agents that need you first, the day's recap, and the running
-  table (dev servers, processes started by hand, containers) with ports, CPU, memory, logs,
-  restart, stop. On a phone the agents come first and chat is the default view of a session.
+- **Home** — who needs you, the agents, the machine and the spend, cost by model, heavy
+  processes, the running table (dev servers, processes started by hand, containers) with ports,
+  CPU, memory, logs, restart, stop — and the day's recap. On a phone chat is the default view of a session.
+- **Rail** (desktop) — every live session in a fixed order (alphabetical by tmux name — positions
+  never jump), its state and what it is doing; a session opens beside it. The focus button in the
+  session bar hides the rail for screen sharing.
+- **Inbox** — `i`; **Android** — `a`.
 - **Projects** — cards grouped by org. ▶ runs the primary command; ▾ lists every script /
   Makefile target / compose action / your own custom commands. *Open* → the drawer: Overview,
   Changes (stage · commit · push, diffs), Files (tree, diffs, editor), Logs, Branches, Docker,
@@ -319,6 +345,15 @@ Nightly, `state/` is tarred into `state-backups/` (also gitignored) — download
 **Keep both folders out of git**: `state/push.json` holds the VAPID private key and your push
 subscriptions.
 
+## Android emulator (optional)
+
+The Android card shows up once `adb` sees a device or an AVD exists. The SDK is taken from
+`$ANDROID_HOME` / `$ANDROID_SDK_ROOT`, else `~/Android/Sdk`. *Start* runs
+`emulator -avd <name> -no-window -gpu host` — headless on the real GPU (software rendering costs a
+CPU core while idle). For your own start script set `EMULATOR_LAUNCHER=/path/to/script` in the
+service environment; it is called with the AVD name. Input goes through `adb` with argument arrays
+only (no shell).
+
 ## Voice input (Whisper)
 
 Optional. `bin/setup-whisper.sh` makes `whisper/.venv` with [faster-whisper](https://github.com/SYSTRAN/faster-whisper)
@@ -354,9 +389,12 @@ lib/gitinfo.js       git status/diffs       lib/files.js    file tree / editor
 lib/expose.js        socat forwards         lib/push.js     Web Push (VAPID + aes128gcm, no deps)
 lib/health.js        port health            lib/sys.js      system stats (temps kept 30 days, /api/temps?days=N)
 lib/recap.js         per-day recap from git log + transcripts
-public/              the UI — vanilla JS, one file
+lib/plans.js         docs/<topic>/PLAN + PROGRESS   lib/worktrees.js  git worktrees (local only)
+lib/subagents.js     subagent transcripts           lib/emulator.js   adb + emulator
+public/              the UI — vanilla JS: app.js + feature modules f-*.js / f-*.css (hooks via feat())
 term/                ttyd's page + the phone layer (build with bin/build-term-index.sh)
-bin/                 hook script + installer, HTTPS setup, terminal entrypoint, icon generator
+bin/                 hook script + installer, HTTPS setup, terminal entrypoint, icon generator,
+                     gate.sh (boots an isolated copy, checks every route and the guards)
 ```
 
 The dashboard never runs a command in its own process: everything goes through

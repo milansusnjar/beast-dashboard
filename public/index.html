@@ -21,30 +21,53 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="apple-mobile-web-app-title" content="Beast">
-<meta name="theme-color" content="#0b0e14">
+<meta name="theme-color" content="#121419">
 <link rel="apple-touch-icon" href="/icon-180.png">
 <link rel="manifest" href="/manifest.webmanifest">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b0e14'/%3E%3Cpath d='M9 8h9a5 5 0 0 1 3.2 8.9A5.5 5.5 0 0 1 18.5 24H9z M13 12v4h5a2 2 0 1 0 0-4z M13 19.5V21h5.5a1.5 1.5 0 1 0 0-3H13z' fill='%235eead4'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23121419'/%3E%3Cpath d='M9 8h9a5 5 0 0 1 3.2 8.9A5.5 5.5 0 0 1 18.5 24H9z M13 12v4h5a2 2 0 1 0 0-4z M13 19.5V21h5.5a1.5 1.5 0 1 0 0-3H13z' fill='%23ff6b95'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" defer></script>
 <link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/f-inbox.css">
+<link rel="stylesheet" href="/f-emu.css">
+<link rel="stylesheet" href="/f-plans.css">
+<link rel="stylesheet" href="/f-worktrees.css">
+<link rel="stylesheet" href="/f-subagents.css">
 </head>
 <body>
-<header class="top">
-  <div class="brand"><span class="logo">B</span><div><div class="title">BEAST <span class="dim">dash</span></div><div class="sub" id="hostline">connecting…</div></div></div>
-  <nav class="nav" id="nav">
-    <button class="navb on" data-view="home">Home</button>
-    <button class="navb" data-view="projects">Projects <span class="n" id="proj-count">0</span></button>
-    <button class="navb" data-view="tasks">Tasks <span class="n" id="task-count">0</span></button>
+<!-- Layout: desktop = rail (nav + every live session) | main column; phone = slim header,
+     content, bottom tab bar. Every id app.js looks up is kept. -->
+<aside class="rail" id="rail">
+  <div class="brand"><span class="logo" aria-hidden="true">B</span><div class="bt"><div class="title">beast</div><div class="sub" id="hostline">connecting…</div></div></div>
+  <nav class="nav" id="nav" aria-label="Views">
+    <button class="navb on" data-view="home"><svg class="ico" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11.5 12 5l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5h-5v5H5a1 1 0 0 1-1-1z"/></svg><span class="nl">Home</span></button>
+    <button class="navb" data-view="projects"><svg class="ico" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></svg><span class="nl">Projects</span> <span class="n" id="proj-count">0</span></button>
+    <button class="navb" data-view="tasks"><svg class="ico" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="m8.5 12.5 2.5 2.5 4.5-5.5"/></svg><span class="nl">Tasks</span> <span class="n" id="task-count">0</span></button>
   </nav>
-  <div class="search"><span class="icon">⌕</span><input id="search" placeholder="Search projects, ports, branches…  ( / )" autocomplete="off"></div>
+  <div class="nav nav2">
+    <button class="navb" id="btn-inbox" title="Claude sessions waiting for you, each with a reply box  (i)"><svg class="ico" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 13.5 6.5 6a1.5 1.5 0 0 1 1.4-1h8.2a1.5 1.5 0 0 1 1.4 1L20 13.5V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M4 13.5h4.5l1 2h5l1-2H20"/></svg><span class="nl">Inbox</span> <span class="n need hidden" id="need-count">0</span></button>
+    <button class="navb" id="btn-downloads" title="Downloads on the server (~/Downloads) — files Claude drops for you  (d)"><svg class="ico" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></svg><span class="nl">Downloads</span></button>
+  </div>
+  <div class="rail-head">
+    <button class="rail-t" id="btn-shell" title="Open the sessions: terminal / chat for every tmux session  (t)">Sessions <span class="n" id="term-count">0</span></button>
+    <button class="rail-add" id="btn-newterm" title="New session — pick a project + account, or a plain shell  (s)" aria-label="New session"><svg class="ico" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+  </div>
+  <div class="rail-list" id="rail-list"></div>
+  <div class="rail-foot" id="rail-foot"></div>
+</aside>
+
+<div class="maincol">
+<header class="top">
+  <div class="mbrand"><span class="logo" aria-hidden="true">B</span><span class="title">beast</span><span class="mdot" id="mdot"></span></div>
+  <h1 class="vtitle" id="vtitle">Home</h1>
+  <div class="search"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg><input id="search" placeholder="Filter projects, ports, branches  ( / )" autocomplete="off"></div>
   <div class="topbtns">
-    <button class="btn primary term" id="btn-shell" title="Terminals: live tmux sessions (Claude, dev servers) in the dashboard  (t)"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="ico"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m7 9 3 3-3 3M13 15h4"/></svg>Terminals <span class="pill" id="term-count">0</span><span class="pill need hidden" id="need-count" title="Claude sessions that need you">0</span></button>
-    <button class="btn ghost" id="btn-downloads" title="Downloads on the server (~/Downloads) — files Claude drops for you  (d)">⬇ Downloads</button>
-    <button class="btn ghost" id="btn-palette" title="Jump to any session or project  (⌘K / Ctrl+K)">⌘K</button>
-    <button class="btn ghost icon" id="btn-settings" title="Settings · tunnels · rescan"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="ico"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+    <button class="btn ghost kbtn" id="btn-palette" title="Jump to any session or project  (⌘K / Ctrl+K)"><svg class="ico" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg><span class="kl">Jump to…</span><kbd>⌘K</kbd></button>
+    <button class="btn ghost icon mobi" id="btn-downloads-m" title="Downloads" aria-label="Downloads"><svg class="ico" viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></svg></button>
+    <button class="btn ghost icon" id="btn-settings" title="Settings · tunnels · rescan" aria-label="Settings"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="ico" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
     <span class="hidden" id="tunnel-count"></span>
   </div>
 </header>
@@ -53,18 +76,30 @@
 <section class="tunnels hidden" id="tunnels"></section>
 
 <div id="view-home">
-  <section class="stats" id="stats"></section>
-  <section class="hogsec" id="hogs"></section>
+  <section class="home-hero" id="home-hero"></section>
   <section class="termstrip" id="termstrip"></section>
+  <section class="stats" id="stats"></section>
+  <section class="feat-home" id="feat-home"></section>
+  <section class="hogsec" id="hogs"></section>
   <section class="running" id="running"></section>
+  <section class="recap-sec" id="recap-sec"></section>
 </div>
 
 <div id="view-projects" class="hidden">
-  <div class="pbar"><div class="chips" id="filters"></div><span class="sp"></span><span class="dim" id="pbar-hint">click a project name for details · Claude ▾ starts a session</span></div>
+  <div class="pbar"><div class="chips" id="filters"></div><span class="sp"></span><span class="dim" id="pbar-hint">Click a project name for details. Claude ▾ starts a session.</span></div>
   <main id="main"></main>
 </div>
 
 <div id="view-tasks" class="hidden"><main id="tasks"></main></div>
+</div>
+
+<nav class="tabbar" id="tabbar" aria-label="Sections">
+  <button class="tb on" data-view="home"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11.5 12 5l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5h-5v5H5a1 1 0 0 1-1-1z"/></svg><span>Home</span></button>
+  <button class="tb" data-act="inbox"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 13.5 6.5 6a1.5 1.5 0 0 1 1.4-1h8.2a1.5 1.5 0 0 1 1.4 1L20 13.5V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M4 13.5h4.5l1 2h5l1-2H20"/></svg><span>Inbox</span><i class="tbn need hidden" id="tb-need"></i></button>
+  <button class="tb" data-act="sessions"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m7 9 3 3-3 3M13 15h4"/></svg><span>Sessions</span><i class="tbn hidden" id="tb-sess"></i></button>
+  <button class="tb" data-view="projects"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></svg><span>Projects</span></button>
+  <button class="tb" data-view="tasks"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="m8.5 12.5 2.5 2.5 4.5-5.5"/></svg><span>Tasks</span><i class="tbn hidden" id="tb-tasks"></i></button>
+</nav>
 
 <aside class="drawer" id="drawer"></aside>
 <div class="termpanel hidden" id="termpanel"></div>
@@ -74,5 +109,11 @@
 <div class="modal hidden" id="modal"></div>
 <div class="modal palette hidden" id="palette"></div>
 <script src="/app.js"></script>
+<!-- feature modules: each registers FEAT.<name>; app.js calls them through feat() -->
+<script src="/f-inbox.js"></script>
+<script src="/f-emu.js"></script>
+<script src="/f-plans.js"></script>
+<script src="/f-worktrees.js"></script>
+<script src="/f-subagents.js"></script>
 </body>
 </html>

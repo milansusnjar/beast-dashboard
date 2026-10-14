@@ -27,6 +27,14 @@ const recap = require('./lib/recap');
 const UPLOAD_MAX = 100e6;   // /api/paste-image: any file up to this, into <devRoot>/.pasted
 const pastedDir = () => path.join(settings.get().devRoot, '.pasted');
 const push = require('./lib/push');
+// Feature routes: plans, worktrees, subagents, Android emulator (stable API)
+const plans = require('./lib/plans');
+const worktrees = require('./lib/worktrees');
+const subagents = require('./lib/subagents');
+const emulator = require('./lib/emulator');
+// BD_TEST=1: a test copy (own state/, own port) — loopback only, no Anthropic limits polling, no push, no scheduler, no auto-expose
+const TEST = process.env.BD_TEST === '1';
+if (TEST) push.notify = async () => ({ sent: 0, test: true });
 
 const PUBLIC = path.join(__dirname, 'public');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json' };
@@ -94,7 +102,7 @@ async function tick() {
     LAST_TICK = now;
     TS_IP = await expose.tailscaleIp(); TS_INFO = await expose.tailscaleInfo();
     snapshot = await rt.snapshot(projects);
-    await expose.reconcile(snapshot, settings.get().autoExpose);
+    if (!TEST) await expose.reconcile(snapshot, settings.get().autoExpose);
     if (snapshot.exposures.length) snapshot = { ...snapshot, exposures: (await rt.snapshot(projects)).exposures }; // refresh exposure list after reconcile
     await decorateClaude();
     await probeHealth();
@@ -186,6 +194,7 @@ function backupState() {
 let autoRestored = false;
 async function autoRestore() {
   if (autoRestored) return; autoRestored = true;
+  if (TEST) return;   // a test copy / design preview never starts sessions in the real tmux
   if (!settings.get().autoRestore) return;
   const list = claude.restorable().filter(r => r.gone && Date.now() - r.gone < 7 * 86400e3); if (!list.length) return;
   console.log('auto-restore:', list.map(r => r.tmux).join(', '));
@@ -334,16 +343,18 @@ function hostOk(req) {
 }
 // Origin must be exactly this host:port — another port on the same host (a forwarded dev server, any app on your own
 // localhost when you use an SSH tunnel) is another site. Only the terminal page may upload pasted files.
+// /api also takes only same-origin fetches (Sec-Fetch-Site): a page on another port of the same host is "same-site".
 function sameOrigin(req, path) {
-  const o = req.headers.origin;
+  const o = req.headers.origin; const paste = path === '/api/paste-image';
   if (o !== undefined) {
     let u; try { u = new URL(o); } catch { return false; }
     if (hostPort(u.host) !== hostPort(req.headers.host)) {
       const fromTerm = hostName(u.host) === hostName(req.headers.host) && +u.port === TERM_PORT;
-      if (!(fromTerm && path === '/api/paste-image')) return false;
+      if (!(fromTerm && paste)) return false;
     }
   }
-  if (path.startsWith('/api/') && req.headers['sec-fetch-site'] === 'cross-site') return false;
+  const sfs = req.headers['sec-fetch-site'];
+  if (path.startsWith('/api/') && sfs && sfs !== 'same-origin' && sfs !== 'none' && !(paste && sfs === 'same-site')) return false;
   return true;
 }
 function json(res, code, obj) { res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); res.end(JSON.stringify(obj)); }
@@ -361,7 +372,8 @@ function whisperStart() { if (!whisperStarting) { whisperStarting = run('systemc
 async function whisperEnsure(ms = 45000) { whisperStart(); const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await whisperHealth()) return true; await new Promise(r => setTimeout(r, 400)); } return false; }
 // UI build version = newest mtime of the files the page is made of. Open pages poll /api/version and reload
 // themselves (when idle) once it changes, so a phone never runs an old index.html against a new app.js.
-function uiVersion() { let v = 0; for (const f of ['index.html', 'app.js', 'style.css', 'sw.js']) { try { v = Math.max(v, fs.statSync(path.join(PUBLIC, f)).mtimeMs); } catch {} } return Math.round(v).toString(36); }
+const UI_FILE = /^(index\.html|app\.js|style\.css|sw\.js|f-[\w-]+\.(js|css))$/;   // f-*.js / f-*.css = feature modules
+function uiVersion() { let v = 0; let fl = []; try { fl = fs.readdirSync(PUBLIC).filter(f => UI_FILE.test(f)); } catch {} for (const f of fl) { try { v = Math.max(v, fs.statSync(path.join(PUBLIC, f)).mtimeMs); } catch {} } return Math.round(v).toString(36); }
 // ~/Downloads on the server, browsed with the same file explorer as a project's Files tab (id "_downloads")
 const DOWNLOADS = { id: '_downloads', name: 'downloads', path: path.join(require('os').homedir(), 'Downloads'), isGit: false, parent: null, rel: '' };
 const fsRoot = id => { if (id !== '_downloads') return proj(id); try { fs.mkdirSync(DOWNLOADS.path, { recursive: true }); } catch {} return DOWNLOADS; };   // a fresh server may have no ~/Downloads yet
@@ -473,7 +485,38 @@ async function api(req, res, url) {
     const base = pastedDir(); const fp = path.resolve(url.searchParams.get('p'));
     if (!fp.startsWith(base + path.sep) || !fs.existsSync(fp)) return json(res, 404, { error: 'missing' });
     const ext = path.extname(fp).toLowerCase(); const type = MIME[ext] || ({ '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.pdf': 'application/pdf', '.csv': 'text/csv; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.json': 'application/json' })[ext] || 'application/octet-stream';
-    res.writeHead(200, { 'content-type': type, 'cache-control': 'private, max-age=3600' }); return fs.createReadStream(fp).pipe(res);
+    // an uploaded .html / .svg must not run script as the dashboard's origin: sandbox it (no scripts, opaque origin)
+    res.writeHead(200, { 'content-type': type, 'cache-control': 'private, max-age=3600', ...(/html|svg/.test(type) ? { 'content-security-policy': 'sandbox' } : {}) }); return fs.createReadStream(fp).pipe(res);
+  }
+  // ---- v1.4 features ----
+  if (m === 'GET' && parts[0] === 'plans' && !parts[1]) return json(res, 200, plans.summary(projects));
+  if (m === 'GET' && parts[0] === 'plan' && parts[1]) {
+    const p = proj(parts[1]); if (!p) return json(res, 404, { error: 'no project' });
+    const topic = url.searchParams.get('topic') || ''; if (!/^[\w.-]+$/.test(topic)) return json(res, 400, { error: 'bad topic' });
+    const r = url.searchParams.get('file') ? plans.file(p.path, topic, url.searchParams.get('file')) : plans.detail(p.path, topic);
+    return json(res, r.error ? 404 : 200, r);
+  }
+  if (m === 'GET' && parts[0] === 'worktrees' && !parts[1]) return json(res, 200, await worktrees.summary(projects, snapshot.sessions));
+  if (m === 'GET' && parts[0] === 'worktrees' && parts[1]) {
+    const p = proj(parts[1]); if (!p || !p.isGit) return json(res, 404, { error: 'no git project' });
+    return json(res, 200, await worktrees.list(p.path, snapshot.sessions));
+  }
+  if (m === 'GET' && parts[0] === 'worktree-diff' && parts[1]) {
+    const p = proj(parts[1]); if (!p || !p.isGit) return json(res, 404, { error: 'no git project' });
+    const r = await worktrees.diff(p.path, url.searchParams.get('path') || ''); return json(res, r.error ? 400 : 200, r);
+  }
+  if (m === 'GET' && parts[0] === 'usage' && parts[1] === 'models') return json(res, 200, usage.models(Math.max(1, Math.min(30, +url.searchParams.get('days') || 7))));
+  if (m === 'GET' && parts[0] === 'subagents' && parts[1]) {
+    const r = claude.get(decodeURIComponent(parts[1])); if (!r || !r.transcriptPath) return json(res, 404, { error: 'no transcript' });
+    const agent = url.searchParams.get('agent');
+    if (agent) { if (!/^[a-z0-9]+$/.test(agent)) return json(res, 400, { error: 'bad agent id' }); const d = subagents.agentDetail(r.transcriptPath, agent); return json(res, d.error ? 404 : 200, d); }
+    return json(res, 200, subagents.forSession(r.transcriptPath));
+  }
+  if (m === 'GET' && parts[0] === 'emu' && !parts[1]) return json(res, 200, await emulator.status());
+  if (m === 'GET' && parts[0] === 'emu-screen') {
+    const serial = url.searchParams.get('serial') || ''; if (!/^[\w.:-]+$/.test(serial)) return json(res, 400, { error: 'bad serial' });
+    const r = await emulator.screen(serial); if (r.error) return json(res, r.status || 404, { error: r.error });
+    res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store' }); return res.end(r.png);
   }
   if (m === 'GET' && parts[0] === 'file' && parts[1]) { // README / CLAUDE.md preview
     const p = proj(parts[1]); const f = decodeURIComponent(parts[2] || 'README.md');
@@ -605,6 +648,19 @@ async function api(req, res, url) {
     case 'claude-mute': { const name = String(b.session || ''); const set = new Set(settings.get().muted || []); if (b.muted) set.add(name); else set.delete(name); settings.update({ muted: [...set] }); pushState(true); return json(res, 200, { ok: true, muted: [...set] }); }
     case 'unit': { const u = String(b.unit || ''); if (!/^[A-Za-z0-9@._-]+\.service$/.test(u) || !['restart', 'stop', 'start'].includes(b.action)) return json(res, 400, { error: 'bad unit/action' }); const r = await run('systemctl', ['--user', b.action, u], { timeout: 20000 }); setTimeout(tick, 1500); return json(res, r.ok ? 200 : 500, r.ok ? { ok: true } : { error: r.stderr.trim() || 'failed' }); }
     case 'clientlog': { console.log('client:', String(b.ua || '').slice(0, 60), '|', String(b.msg || '').slice(0, 300), '|', String(b.where || '').slice(0, 200)); return json(res, 200, { ok: true }); }
+    // ---- v1.4 features ----
+    case 'worktree-merge': case 'worktree-remove': case 'worktree-prune': {
+      const p = proj(String(b.id || '')); if (!p || !p.isGit) return json(res, 404, { error: 'no git project' });
+      const r = parts[0] === 'worktree-prune' ? await worktrees.prune(p.path)
+        : parts[0] === 'worktree-merge' ? await worktrees.merge(p.path, String(b.path || ''))
+        : await worktrees.remove(p.path, String(b.path || ''), { force: !!b.force, deleteBranch: !!b.deleteBranch }, snapshot.sessions);
+      lastGit = 0; setTimeout(tick, 300); return json(res, r.error ? 400 : 200, r);
+    }
+    case 'emu-start': { const avd = String(b.avd || ''); if (!/^[\w.-]+$/.test(avd)) return json(res, 400, { error: 'bad avd' }); const r = await emulator.start(avd); return json(res, r.error ? 400 : 200, r); }
+    case 'emu-stop': case 'emu-input': {
+      const serial = String(b.serial || ''); if (!/^[\w.:-]+$/.test(serial)) return json(res, 400, { error: 'bad serial' });
+      const r = parts[0] === 'emu-stop' ? await emulator.stop(serial) : await emulator.input(serial, b); return json(res, r.error ? 400 : 200, r);
+    }
     case 'task': { const r = tasks.add(b); pushState(true); return json(res, r.ok ? 200 : 400, r); }
     case 'task-update': { const r = tasks.update(String(b.id || ''), b); pushState(true); return json(res, r.ok ? 200 : 400, r); }
     case 'task-remove': { const r = tasks.remove(String(b.id || '')); pushState(true); return json(res, 200, r); }
@@ -699,12 +755,15 @@ const server = http.createServer(async (req, res) => {
   if (!sameOrigin(req, url.pathname)) { res.writeHead(403); return res.end('forbidden (cross-site request)'); }
   try {
     if (url.pathname.startsWith('/api/')) return await api(req, res, url);
+    // nobody frames the dashboard: a hidden iframe on another site would turn clicks into taps on the emulator, merges … (clickjacking).
+    // Test copies (BD_TEST) stay frameable — the screenshot kit wraps them in an iframe.
+    if (!TEST || process.env.BD_BIND) { res.setHeader('x-frame-options', 'DENY'); res.setHeader('content-security-policy', "frame-ancestors 'none'"); }
     let f = url.pathname === '/' ? '/index.html' : url.pathname;
     f = path.normalize(f).replace(/^(\.\.[\/\\])+/, '');
     const fp = path.join(PUBLIC, f);
     if (!fp.startsWith(PUBLIC) || !fs.existsSync(fp)) { res.writeHead(404); return res.end('404'); }
     if (f === '/index.html') { // stamp the build: the page knows which version it is, and app.js / style.css can't come from an older cache
-      const v = uiVersion(); const html = fs.readFileSync(fp, 'utf8').replace('</head>', `<meta name="bd-ver" content="${v}"></head>`).replace('src="/app.js"', `src="/app.js?v=${v}"`).replace('href="/style.css"', `href="/style.css?v=${v}"`);
+      const v = uiVersion(); const html = fs.readFileSync(fp, 'utf8').replace('</head>', `<meta name="bd-ver" content="${v}"></head>`).replace(/src="\/(app|f-[\w-]+)\.js"/g, `src="/$1.js?v=${v}"`).replace(/href="\/(style|f-[\w-]+)\.css"/g, `href="/$1.css?v=${v}"`);
       res.writeHead(200, { 'content-type': MIME['.html'], 'cache-control': 'no-cache, no-store' }); return res.end(html);
     }
     res.writeHead(200, { 'content-type': MIME[path.extname(fp)] || 'application/octet-stream', 'cache-control': 'no-cache' });
@@ -717,9 +776,12 @@ const server = http.createServer(async (req, res) => {
   await rescan();
   await sys.sample();
   await tick();
-  setPace();   // krece u mirnom taktu; prvi klijent ga digne
-  limits.start(() => pushState(false));   // plan limits (5 h / 7 d / Fable) per account, every minute
-  setInterval(() => runSchedule().catch(e => console.error('schedule', e)), 5000);
-  setInterval(() => dailySummary().catch(e => console.error('daily', e)), 60000);   // scheduled prompts: own clock, not tied to the (slow when unwatched) tick
-  server.listen(s.port, '0.0.0.0', () => console.log(`beast-dash on http://${TS_IP || '0.0.0.0'}:${s.port}  (${projects.length} projects)`));
+  setPace();   // starts at the calm pace; the first client speeds it up
+  if (!TEST) {
+    limits.start(() => pushState(false));   // plan limits (5 h / 7 d / Fable) per account, every minute
+    setInterval(() => runSchedule().catch(e => console.error('schedule', e)), 5000);
+    setInterval(() => dailySummary().catch(e => console.error('daily', e)), 60000);   // scheduled prompts: own clock, not tied to the (slow when unwatched) tick
+  }
+  server.listen(s.port, TEST ? (process.env.BD_BIND || '127.0.0.1') : '0.0.0.0',   // BD_BIND: a test copy may listen on the tailnet IP (design preview)
+   () => console.log(`beast-dash on http://${TS_IP || '0.0.0.0'}:${s.port}  (${projects.length} projects)`));
 })();
