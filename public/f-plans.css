@@ -42,7 +42,7 @@
 .fp-it { min-width: 0; word-break: break-word; }
 .fp-item.done .fp-box { background: var(--green); border-color: var(--green); }
 .fp-item.done .fp-it { color: var(--dim); text-decoration: line-through; text-decoration-color: rgba(255,255,255,.2); }
-.fp-item.next { background: color-mix(in srgb, var(--accent) 10%, transparent); box-shadow: inset 3px 0 0 var(--accent); border-radius: 0 8px 8px 0; }
+.fp-item.next { background: color-mix(in srgb, var(--accent) 10%, transparent); border-radius: 8px; }
 .fp-item.next .fp-box { border-color: var(--accent); }
 .fp-item.next .fp-it { font-weight: 600; }
 

@@ -1769,7 +1769,7 @@ function tabFiles(el, p, o = {}) {
   const loadDir = async (rel, box, depth) => {
     box.innerHTML = ''; let d; try { d = await api(`tree/${p.id}?path=${encodeURIComponent(rel)}`); } catch (e) { box.append(h('div', { class: 'dim' }, e.message)); return; }
     if (d.error) { box.append(h('div', { class: 'dim' }, d.error)); return; }
-    if (o.newest) d.entries.sort((a, b) => (a.type === b.type ? 0 : a.type === 'dir' ? -1 : 1) || (b.mtime || 0) - (a.mtime || 0));
+    if (o.newest) d.entries.sort((a, b) => (b.mtime || 0) - (a.mtime || 0) || a.name.localeCompare(b.name));   // Downloads: last modified first, folders and files together (like a file manager sorted by date)
     if (!d.entries.length && !depth) box.append(h('div', { class: 'dim', style: 'padding:12px' }, 'empty'));
     for (const e of d.entries) {
       if (e.type === 'dir') {

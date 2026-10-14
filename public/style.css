@@ -74,7 +74,6 @@ kbd { font-family: var(--mono); font-size: 10.5px; border: 1px solid var(--line2
 .rrow { position: relative; display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 7px 10px 7px 12px; border: 0; border-radius: 10px; background: none; cursor: pointer; text-align: left; color: var(--text); min-width: 0; }
 .rrow:hover { background: var(--fill); }
 .rrow.on { background: var(--panel2); }
-.rrow.on::before { content: ''; position: absolute; left: 0; top: 9px; bottom: 9px; width: 3px; border-radius: 3px; background: var(--accent); }
 .rdot { flex: none; width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; background: var(--st-idle); }
 .rtx { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .rnm { display: flex; align-items: baseline; gap: 6px; min-width: 0; font-size: 13px; line-height: 1.35; }
@@ -216,7 +215,7 @@ input[type=checkbox] { accent-color: var(--accent); }
 /* toasts */
 .toasts { position: fixed; right: 20px; bottom: 20px; z-index: 100; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; pointer-events: none; }
 .toast { pointer-events: auto; max-width: 440px; padding: 10px 14px 10px 12px; border-radius: 12px; background: var(--panel3); border: 1px solid var(--line2); box-shadow: var(--shadow); font-size: 13px; white-space: pre-wrap; display: flex; gap: 10px; animation: pop .22s var(--ease); }
-.toast::before { content: ''; flex: none; width: 3px; border-radius: 3px; background: var(--accent); }
+.toast::before { content: ''; flex: none; width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; background: var(--accent); }
 .toast.err::before { background: var(--red); } .toast.ok::before { background: var(--green); }
 @keyframes pop { from { transform: translateY(8px); opacity: 0; } }
 #newbuild { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 200; box-shadow: var(--shadow); }
@@ -285,13 +284,11 @@ input[type=checkbox] { accent-color: var(--accent); }
 .agents { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(max(360px, calc((100% - 48px) / 5)), 100%), 1fr)); gap: 12px; align-items: stretch; }   /* at most 5 per row on wide screens */
 .agent { position: relative; display: flex; flex-direction: column; gap: 10px; min-width: 0; height: 100%; padding: 14px 16px 12px 18px; border-radius: var(--r); background: var(--panel); cursor: pointer; transition: background .15s; overflow: hidden; }
 .agent:hover { background: var(--panel2); }
-.agent .ag-rail { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: transparent; }
-.agent.st-working .ag-rail { background: var(--st-work); }
-.agent.st-background .ag-rail { background: var(--st-bg); }
-.agent.st-needs-you .ag-rail { background: var(--st-need); }
-.agent.st-permission .ag-rail { background: var(--st-perm); }
-.agent.st-error .ag-rail { background: var(--st-err); }
-.agent.st-limit .ag-rail { background: var(--st-limit); }
+.agent .ag-rail { display: none; }
+.agent.st-needs-you { border: 1px solid color-mix(in srgb, var(--st-need) 40%, transparent); }
+.agent.st-permission { border: 1px solid color-mix(in srgb, var(--st-perm) 45%, transparent); }
+.agent.st-error { border: 1px solid color-mix(in srgb, var(--st-err) 40%, transparent); }
+.agent { border: 1px solid transparent; }
 .agent.st-needs-you { background: color-mix(in srgb, var(--st-need) 6%, var(--panel)); }
 .agent.st-permission { background: color-mix(in srgb, var(--st-perm) 8%, var(--panel)); }
 .agent.st-needs-you:hover { background: color-mix(in srgb, var(--st-need) 10%, var(--panel2)); }
@@ -578,7 +575,7 @@ main { padding: 8px 28px 60px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); gap: 12px; }
 .card { position: relative; display: flex; flex-direction: column; gap: 11px; min-width: 0; padding: 14px 16px; border-radius: var(--r); background: var(--panel); overflow: hidden; transition: background .15s; }
 .card:hover { background: color-mix(in srgb, var(--panel2) 60%, var(--panel)); }
-.card.live { box-shadow: inset 3px 0 0 var(--green); }
+.card.live { border: 1px solid color-mix(in srgb, var(--green) 30%, transparent); }
 .card.sub { background: var(--bg2); }
 .card .head { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .card .hd { flex: 1; min-width: 0; }
@@ -657,7 +654,7 @@ main { padding: 8px 28px 60px; }
 .tksec.review { color: var(--green); }
 .tklist { display: flex; flex-direction: column; gap: 10px; }
 .tk { display: flex; flex-direction: column; gap: 9px; padding: 14px 16px; border-radius: var(--r); background: var(--panel); }
-.tk.st-doing { box-shadow: inset 3px 0 0 var(--cyan); }
+.tk.st-doing { border: 1px solid color-mix(in srgb, var(--cyan) 35%, transparent); }
 .tklist.done .tk { opacity: .55; }
 .tk-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .tk-hd { flex: 1; min-width: 0; }
@@ -709,7 +706,7 @@ main { padding: 8px 28px 60px; }
 .cmdrow .k { font-weight: 600; min-width: 120px; font-size: 13px; }
 .cmdrow .c { font-family: var(--mono); font-size: 12px; color: var(--muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cmdrow .kind { font-size: 11px; color: var(--dim); }
-.cmdrow.running { box-shadow: inset 3px 0 0 var(--green); }
+.cmdrow.running { border: 1px solid color-mix(in srgb, var(--green) 35%, transparent); }
 .logbar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
 .logbar select { font-size: 12.5px; }
 .logbox { background: #0d0f13; border-radius: 12px; height: calc(100vh - 240px); min-height: 300px; overflow: auto; padding: 12px 14px; font-family: var(--mono); font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; color: #d3d9e2; max-width: 100%; }
@@ -944,7 +941,7 @@ body.term-open { overflow: hidden; }
 .tkeys { padding: 12px 10px; font-size: 11.5px; color: var(--dim); line-height: 1.8; }
 .titem { position: relative; display: flex; align-items: flex-start; gap: 12px; min-height: 72px; padding: 12px 12px 12px 14px; margin-bottom: 6px; border-radius: 14px; background: var(--panel); cursor: pointer; }
 .titem:hover { background: var(--panel2); }
-.titem.on { background: var(--panel2); box-shadow: inset 3px 0 0 var(--accent); }
+.titem.on { background: var(--panel2); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); }
 .titem .av { margin-top: 1px; }
 .titem .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; margin-top: 6px; background: var(--green); }
 .titem.claude .dot { background: var(--st-idle); }
@@ -1036,8 +1033,8 @@ body.term-open { overflow: hidden; }
 .tli { display: flex; flex-direction: column; gap: 3px; }
 .tdiff { display: flex; flex-direction: column; gap: 2px; margin: 2px 0 6px; font-family: var(--mono); font-size: 11.5px; line-height: 1.45; }
 .tdiff pre { margin: 0; padding: 5px 9px; border-radius: 7px; white-space: pre-wrap; word-break: break-word; max-height: 160px; overflow: auto; }
-.tdiff pre.del { background: color-mix(in srgb, var(--red) 10%, transparent); color: #f8c4c4; box-shadow: inset 2px 0 0 var(--red); }
-.tdiff pre.add { background: color-mix(in srgb, var(--green) 10%, transparent); color: #b6efce; box-shadow: inset 2px 0 0 var(--green); }
+.tdiff pre.del { background: color-mix(in srgb, var(--red) 10%, transparent); color: #f8c4c4; }
+.tdiff pre.add { background: color-mix(in srgb, var(--green) 10%, transparent); color: #b6efce; }
 .trow, .tgroup { border-radius: 9px; min-width: 0; }
 .tr-sum, .tg-sum { all: unset; box-sizing: border-box; width: 100%; display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: 9px; cursor: pointer; font-size: 13px; color: var(--muted); min-width: 0; }
 .tr-sum:hover, .tg-sum:hover { background: var(--fill); color: var(--text); }
@@ -1171,7 +1168,7 @@ body.recording .ckeys > :not(.mic) { pointer-events: none; opacity: .4; }
   .agents > * + * { border-top: 1px solid var(--line); }
   .agent { min-height: 0; padding: 13px 14px 12px 16px; gap: 7px; background: transparent; border-radius: 0; }
   .agent:hover { background: var(--fill); }
-  .agent .ag-rail { top: 12px; bottom: 12px; border-radius: 0 3px 3px 0; }
+  .agents .agent { border: 0; }
   .ag-head { gap: 11px; align-items: center; }
   .ag-name { font-size: 15px; }
   .ag-name .badge.acc { display: none; }
