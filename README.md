@@ -55,8 +55,8 @@ your projects and it gives you:
 - **Git worktrees** — every worktree of a repo with ahead/behind, changes, which Claude works in it;
   diff, merge into the base branch (aborts on conflict), remove, prune.
 - **Subagents and cost by model** — the agents a session spawned (type, model, prompt, steps, cost)
-  from the chat bar; a Home card with today's and the week's API-equivalent cost per model and main
-  threads vs subagents.
+  from the chat bar; a Home card with today's and the week's API-equivalent cost per model and a
+  7-day line (all models, subagents).
 - **Android emulator** — a live thumbnail on Home; a sheet with the screen (tap, swipe, back / home /
   recents, typing), start and stop per AVD (optional, [below](#android-emulator-optional)).
 - **Updates itself** — open pages reload into a new build on their own when idle.
@@ -294,11 +294,12 @@ read-only and *Resume here*.
 
 ## Everyday use
 
-- **Home** — who needs you, the agents, the machine and the spend, cost by model, heavy
+- **Home** — who needs you, the machine and the spend, cost by model, heavy
   processes, the running table (dev servers, processes started by hand, containers) with ports,
-  CPU, memory, logs, restart, stop — and the day's recap. On a phone chat is the default view of a session.
+  CPU, memory, logs, restart, stop — and the day's recap. On a phone Home also lists the agents
+  (there is no rail) and chat is the default view of a session.
 - **Rail** (desktop) — every live session in a fixed order (alphabetical by tmux name — positions
-  never jump), its state and what it is doing; a session opens beside it. The focus button in the
+  never jump), its state, what it is doing and which Claude account it runs on; a session opens beside it. The focus button in the
   session bar hides the rail for screen sharing.
 - **Inbox** — `i`; **Android** — `a`.
 - **Projects** — cards grouped by org. ▶ runs the primary command; ▾ lists every script /
