@@ -173,7 +173,6 @@
     const sig = JSON.stringify([M, T.flagged.map(a => a.agentId)]);
     if (sig === T.sig) return; T.sig = sig;
     const today = M.days[M.days.length - 1]; const tTot = FAMS.reduce((s, f) => s + today.byFamily[f], 0); const wTot = FAMS.reduce((s, f) => s + M.totals.byFamily[f], 0);
-    const splitTot = M.totals.main + M.totals.sub;
     el.replaceChildren(...[
       h('div', { class: 'k' }, h('span', null, 'Cost by model'), h('span', { class: 'dim sa-note' }, 'API-equivalent')),
       h('div', { class: 'sa-grid' },
@@ -181,10 +180,7 @@
           h('div', { class: 'sa-lbl' }, 'Today ', h('b', { class: 'mono' }, money(tTot))), stack(today.byFamily, tTot, true), legend(today.byFamily),
           h('div', { class: 'sa-lbl', style: 'margin-top:10px' }, '7 days ', h('b', { class: 'mono' }, money(wTot))), stack(M.totals.byFamily, wTot, true), legend(M.totals.byFamily)),
         h('div', { class: 'sa-part' },
-          lineChart(M.days),
-          h('div', { class: 'sa-lbl', style: 'margin-top:10px' }, 'Main threads vs subagents (7 d)'),
-          h('div', { class: 'sa-stack' }, splitTot > 0 ? h('i', { class: 'sa-bg-main', style: `flex:${M.totals.main}` }) : h('i', { class: 'sa-f-none', style: 'flex:1' }), M.totals.sub > 0 ? h('i', { class: 'sa-bg-sub', style: `flex:${M.totals.sub}` }) : null),
-          h('div', { class: 'sa-legend' }, h('span', { class: 'sa-lg' }, h('i', { class: 'sa-bg-main' }), 'Main ', h('b', { class: 'mono' }, money(M.totals.main))), h('span', { class: 'sa-lg' }, h('i', { class: 'sa-bg-sub' }), 'Subagents ', h('b', { class: 'mono' }, money(M.totals.sub)))))),
+          lineChart(M.days))),
       T.flagged.length ? h('div', { class: 'sa-fl' }, h('div', { class: 'sa-lbl' }, '⚠ Flagged today'), ...T.flagged.slice(0, 5).map(a => h('div', { class: 'sa-flrow' }, h('span', { class: 'sa-flag' }, a.flag), h('span', { class: 'dim sa-fld' }, (a.description || a.type) + ' · ' + a.session), h('b', { class: 'mono' }, money(a.cost))))) : null].filter(Boolean));
   }
   function homeTiles() {
