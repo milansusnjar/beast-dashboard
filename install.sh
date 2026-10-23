@@ -39,6 +39,7 @@ if command -v ttyd >/dev/null; then
 else
   echo "ttyd not found — the dashboard runs, the embedded terminal does not (sudo apt install ttyd, then re-run)"
 fi
+tmux set-environment -g -u NODE_ENV 2>/dev/null || true
 
 log "Claude Code hooks (session state on the cards)"
 node bin/install-hooks.js

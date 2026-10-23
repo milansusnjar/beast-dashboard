@@ -6,3 +6,4 @@ state-backups/
 docs/screenshots/*.tmp
 whisper/.venv/
 whisper/whisper.env
+probe/target/

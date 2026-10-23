@@ -899,6 +899,7 @@ main { padding: 8px 28px 60px; }
 .ntl { font-size: 12.5px; color: var(--dim); }
 .ntopts .ntl:not(:first-child) { margin-left: 8px; }
 .ntlist { overflow-y: auto; display: flex; flex-direction: column; gap: 2px; min-height: 120px; }
+.modal .box.ntbox > :not(.ntlist) { flex: none; }
 .ntrow { display: flex; align-items: center; gap: 12px; padding: 9px 10px; border-radius: 11px; cursor: pointer; }
 .ntrow:hover { background: var(--fill2); }
 .ntn { min-width: 0; flex: 1; } .ntt { font-weight: 500; } .nts { font-size: 12px; color: var(--dim); }
@@ -1177,7 +1178,7 @@ body.recording .ckeys > :not(.mic) { pointer-events: none; opacity: .4; }
   .agroup .agtabs { background: transparent; padding-top: 8px; border-bottom: 1px solid var(--line); border-radius: 0; }
   .agroup .agent { border-radius: 0; }
   .agtab.on { background: var(--fill2); }
-  .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .tile { min-height: 74px; padding: 10px 11px 9px; border-radius: 12px; }
   .tile .k { font-size: 11.5px; }
   .tile .k .temp { font-size: 10px; padding: 0 4px; line-height: 15px; }
@@ -1310,4 +1311,33 @@ body.term-open .rail .navb.on .ico { color: inherit; opacity: .85; }
 .tstitle.run { display: inline-flex; padding: 0; background: none; border-radius: 0; font-size: 17px; flex-wrap: nowrap; }   /* not the .run rows of project cards */
 @media (max-width: 900px) { .tstitle.run { font-size: 16px; } }
 /* desktop: the agents live in the rail, so Home doesn't repeat them (scheduled messages stay); the phone keeps the list */
-@media (min-width: 901px) { #termstrip .tshead, #termstrip .agents, #termstrip .tsempty { display: none; } #termstrip:not(:has(.sched)) { display: none; } }
+#termstrip .tshead, #termstrip .agents, #termstrip .tsempty { display: none; } #termstrip:not(:has(.sched)) { display: none; }
+.turn.assistant.cmenu { border: 1px solid color-mix(in srgb, var(--signal) 45%, transparent); border-radius: 12px; padding: 10px 12px; gap: 8px; }
+.turn.assistant.cmenu .who { color: var(--signal); }
+.cmenu-q { white-space: pre-wrap; font-size: 13px; line-height: 1.45; color: var(--text); max-height: 40vh; overflow: auto; }
+.cmenu-opts { display: flex; flex-direction: column; gap: 6px; }
+.cmenu-opts .cmenu-opt { justify-content: flex-start; text-align: left; white-space: normal; min-height: 40px; height: auto; padding: 8px 12px; }
+.cmenu-opts .cmenu-opt.cur { border-color: color-mix(in srgb, var(--signal) 55%, transparent); }
+.cmenu-esc { display: flex; }
+
+.rgrp-o { position: relative; padding-bottom: 2px; }
+.rgrp-o::before { content: ''; position: absolute; left: 15px; top: 28px; bottom: 8px; width: 1px; background: color-mix(in srgb, var(--org) 40%, transparent); }
+.rorg { display: flex; align-items: center; gap: 7px; padding: 10px 10px 3px 12px; font-size: 11px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; color: var(--muted); }
+.rorg i { width: 7px; height: 7px; border-radius: 2px; background: var(--org); }
+.rorg em { font-style: normal; font-weight: 500; color: var(--dim); }
+.rgrp-o > .rrow, .rgrp-o > .rgrp-p { margin-left: 10px; width: calc(100% - 10px); }
+.rgrp-p { position: relative; }
+.rgrp-p::before { content: ''; position: absolute; left: 15px; top: 24px; bottom: 10px; width: 1px; background: var(--line2); }
+.rproj { display: flex; align-items: baseline; gap: 6px; padding: 7px 10px 1px 12px; font-size: 13px; line-height: 1.35; min-width: 0; }
+.rproj b { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.rproj em { flex: none; font-style: normal; font-size: 11px; color: var(--dim); font-family: var(--mono); }
+.rrow.sub { padding-left: 24px; padding-top: 5px; padding-bottom: 5px; }
+.rrow.sub .rnm b { font-family: var(--mono); font-size: 12px; }
+.torg { position: relative; }
+.torg::before { content: ''; position: absolute; left: 9px; top: 34px; bottom: 6px; width: 1px; background: color-mix(in srgb, var(--org) 40%, transparent); }
+.torg-h { display: flex; align-items: center; gap: 7px; padding: 12px 8px 4px 6px; font-size: 11.5px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; color: var(--muted); }
+.torg-h i { width: 7px; height: 7px; border-radius: 2px; background: var(--org); }
+.torg-h .n { color: var(--dim); font-weight: 500; }
+.torg > .titem, .torg > .tgrp { margin-left: 14px; }
+.torg > .titem.sub { margin-left: 32px; }
+.ntrun { display: inline-flex; align-items: center; gap: 6px; flex: none; }

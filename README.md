@@ -151,7 +151,8 @@ Optional, each one unlocks a feature and is skipped cleanly when missing:
 | `socat` | automatic port forwarding onto the tailnet |
 | `docker` | container list, compose up/down, container logs |
 | `jq` | smaller Claude hook payloads (falls back to a size cap) |
-| `nvidia-smi` | the GPU tile |
+| NVIDIA driver | the GPU tile (read through NVML by the Rust probe, `nvidia-smi` otherwise) |
+| `cargo` 1.78+ (Rust, via rustup) | the faster process probe — see *Configuration* |
 | `python3` | the "⌨ Shell" button reads `devRoot`; icon regeneration |
 | **Claude Code** | the agent cards, transcript view, usage limits |
 
@@ -254,13 +255,20 @@ terminal. Two Claude Code logins are supported: the default `~/.claude`, and a s
 `~/.claude-company` (started with `CLAUDE_CONFIG_DIR`, session `claude-<project>-company`). What
 they are called on the cards is yours — ⚙ Settings → *Claude accounts* (e.g. "Me" / "Work"). The
 second one is optional; if the folder doesn't exist, nothing mentions it. More than one session per project:
-*Another instance* or *in a git worktree…* (`claude --worktree`), so two agents never edit the same
-files.
+*Another instance*, **+ Terminal → New** on a project that already has one running (*open* jumps to the
+running one instead), or *in a git worktree…* (`claude --worktree`), so two agents never edit the same
+files. Sessions are listed by org, then project, then instance (#1 before #2) and that order never
+changes with their state. Git worktrees are not listed as projects of their own: a session running in
+one counts for its repo, and the picker shows a ⎇ chip with each worktree's branch and status (the repo
+itself has to be inside `devRoot` for its worktrees to show up).
 
 **Knowing what it's doing.** `bin/install-hooks.js` registers `bin/claude-hook.sh` as a Claude Code
 hook (SessionStart, UserPromptSubmit, PreToolUse, PermissionRequest, Notification, Stop,
 StopFailure, SessionEnd). Every event is POSTed to the dashboard tagged with the tmux session, so a
 card knows within milliseconds that its agent is running `npm test`, waiting for a `y`, or done.
+Claude's own menus — *trust this folder*, the auto-mode setup, tool permission prompts — are read from
+the pane and shown in the chat and the inbox as buttons; picking one moves the cursor to that option
+and checks it before pressing Enter.
 As a fallback the pane itself is read (`tmux capture-pane`). Sessions you started by hand inside
 tmux are picked up too.
 
@@ -346,6 +354,20 @@ Nightly, `state/` is tarred into `state-backups/` (also gitignored) — download
 **Keep both folders out of git**: `state/push.json` holds the VAPID private key and your push
 subscriptions.
 
+**Process probe (optional).** Every tick reads the process table, the listening ports and the GPU.
+By default Node walks `/proc`, spawns `ss` and `nvidia-smi`; with a Rust toolchain a small helper
+in `probe/` (no crates) does it in under half the time and without blocking the event loop:
+
+```bash
+bin/probe-mode.sh build    # cargo build --release
+bin/probe-mode.sh rust     # use it (restarts the service)
+bin/probe-mode.sh node     # back to the Node path
+bin/probe-mode.sh status
+```
+
+If the helper fails three times in a row the dashboard falls back to Node on its own; `host.probe`
+in `/api/state` says which path is live.
+
 ## Android emulator (optional)
 
 The Android card shows up once `adb` sees a device or an AVD exists. The SDK is taken from
@@ -382,6 +404,8 @@ Without it the mic uses the browser's own speech recognition (Safari / Chrome).
 server.js            HTTP + SSE API, one tick loop (fast while someone is watching, slow when not)
 lib/discovery.js     scans devRoot, classifies projects, finds their commands
 lib/runtime.js       processes, ports, tmux sessions, containers — attributed to projects
+lib/probe.js         process table, ports and GPU from probe/ (Rust, no crates), Node fallback
+lib/detach.js        moves tmux/socat/adb into their own systemd scopes, so they outlive the service
 lib/actions.js       start/stop/restart in tmux, Claude sessions, shells
 lib/claude.js        session state from hooks + pane; restore after reboot
 lib/usage.js         transcript cost        lib/limits.js   plan limits

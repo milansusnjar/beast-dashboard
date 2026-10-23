@@ -49,6 +49,62 @@ FEAT.worktrees = (() => {
     return h('button', { class: cls, title: tip, onclick: () => openDrawer(p.id, KEY) }, h('span', { class: 'ico' }, '⎇'), String(s.count));
   }
 
+  async function getList(pid) {
+    const cur = cache[pid] || (cache[pid] = { d: null, at: 0, p: null });
+    if (cur.d && Date.now() - cur.at < TAB_TTL) return cur.d;
+    if (!cur.p) cur.p = (async () => {
+      try { cur.d = await api(`worktrees/${pid}`); cur.at = Date.now(); cur.err = null; } catch (e) { cur.err = e.message; }
+      finally { cur.p = null; }
+    })();
+    await cur.p;
+    return cur.d;
+  }
+
+  const CAN_HOVER = matchMedia('(hover: hover)').matches;
+  function pickerChip(p) {
+    const s = sum[p.id]; if (!s || !s.count) return null;
+    const pop = h('div', { class: 'wtx-pop hidden', onclick: ev => ev.stopPropagation() });
+    let hideT = 0;
+    const outside = ev => { if (pop.contains(ev.target) || chip.contains(ev.target)) return; ev.stopPropagation(); ev.preventDefault(); hide(); };
+    const onScroll = ev => { if (!pop.contains(ev.target)) hide(); };
+    const hide = () => {
+      clearTimeout(hideT); pop.classList.add('hidden');
+      document.removeEventListener('click', outside, true); document.removeEventListener('scroll', onScroll, true);
+    };
+    const later = () => { clearTimeout(hideT); hideT = setTimeout(hide, 220); };
+    const rows = d => {
+      const ws = d && d.worktrees || [];
+      if (!ws.length) return [h('div', { class: 'dim' }, cache[p.id]?.err || 'No extra worktrees.')];
+      return ws.map(w => h('div', { class: 'wtx-prow' },
+        h('div', { class: 'wtx-pt' }, h('span', { class: 'ico' }, '⎇'), h('b', null, w.branch || ('HEAD@' + w.head)),
+          h('span', { class: 'wtx-sp' }),
+          isDirty(w) ? h('span', { class: 'wtx-pb warn' }, 'uncommitted') : null,
+          w.sessions.length ? h('span', { class: 'wtx-pb live' }, plural(w.sessions.length, 'session')) : null,
+          w.merged ? h('span', { class: 'wtx-pb mute' }, 'merged') : w.ahead ? h('span', { class: 'wtx-pb' }, '↑' + w.ahead) : null),
+        h('div', { class: 'wtx-pp mono', title: w.path }, w.path.split('/').slice(-2).join('/')),
+        w.last ? h('div', { class: 'wtx-pl' }, w.last.subject, h('i', null, ' · ' + ago(w.last.ts))) : null));
+    };
+    const show = async () => {
+      clearTimeout(hideT);
+      const r = chip.getBoundingClientRect();
+      pop.style.right = Math.max(8, innerWidth - r.right) + 'px';
+      if (r.bottom < innerHeight * 0.55) { pop.style.top = (r.bottom + 6) + 'px'; pop.style.bottom = ''; }
+      else { pop.style.bottom = (innerHeight - r.top + 6) + 'px'; pop.style.top = ''; }
+      pop.classList.remove('hidden');
+      document.addEventListener('click', outside, true); document.addEventListener('scroll', onScroll, true);
+      if (!pop.childNodes.length) pop.append(h('div', { class: 'dim' }, 'loading…'));
+      const d = await getList(p.id);
+      if (pop.isConnected) pop.replaceChildren(h('div', { class: 'wtx-ph' }, `${p.name} · ${plural(s.count, 'worktree')}`), ...rows(d));
+    };
+    const chip = h('button', { class: 'wtx-chip' + (s.dirty ? ' dirty' : s.stale >= s.count ? ' stale' : ''),
+      onclick: ev => { ev.stopPropagation(); pop.classList.contains('hidden') ? show() : hide(); },
+      onmouseenter: () => { if (CAN_HOVER) show(); }, onmouseleave: () => { if (CAN_HOVER) later(); } },
+      h('span', { class: 'ico' }, '⎇'), plural(s.count, 'worktree'));
+    pop.onmouseenter = () => clearTimeout(hideT);
+    pop.onmouseleave = () => { if (CAN_HOVER) later(); };
+    return h('span', { class: 'wtx-pick' }, chip, pop);
+  }
+
   function drawerTabs(p) {
     const s = sum[p.id]; if (!s || !s.count) return null;
     return [{ key: KEY, label: "Worktrees", render: tab }];
@@ -187,5 +243,5 @@ FEAT.worktrees = (() => {
       panel, diffBox);
   }
 
-  return { cardChips, drawerTabs, paletteItems };
+  return { cardChips, drawerTabs, paletteItems, pickerChip };
 })();

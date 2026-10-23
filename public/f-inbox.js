@@ -13,6 +13,7 @@
   };
   const lineOf = it => {
     const cl = it.claude;
+    if (cl.state === 'permission' && cl.menu) return cl.menu.text.filter(Boolean).slice(-3).join('\n') || 'Claude is asking';
     if (cl.state === 'permission') return 'Wants to run: ' + (cl.lastTool || '?') + (cl.lastMessage ? '\n' + cl.lastMessage : '');
     if (cl.state === 'limit') return cl.limitText || (acct(it.account) + ' account hit its usage limit');
     return cl.lastMessage || cl.title || (cl.state === 'error' ? 'Error: open the chat' : 'Finished');
@@ -41,7 +42,7 @@
     const send = async () => {
       const v = ta.value.trim(); if (!v) return;
       // never type Enter-terminated text into a permission menu (Enter would confirm the highlighted "Yes")
-      if (claudeOf(name)?.state === 'permission') { toast('Still at the permission prompt: use Allow / Deny', 'err'); return; }
+      if (claudeOf(name)?.state === 'permission') { toast(claudeOf(name)?.menu ? 'Claude is asking something: pick an option above' : 'Still at the permission prompt: use Allow / Deny', 'err'); return; }
       ta.value = ''; grow();
       (PENDING[name] = PENDING[name] || []).push({ text: v, ts: Date.now() });
       try {
@@ -76,7 +77,7 @@
     const title = h('span', { class: 'ibx-proj' }), tag = h('span', { class: 'badge tag acc' }), av = h('span', { class: 'ibx-av' });
     const head = h('div', { class: 'ibx-head' }, av, h('div', { class: 'ibx-id' }, title, tag), h('span', { class: 'sp' }), badge);
     row.el = h('div', { class: 'ibx-row', 'data-name': name }, head, msg, more, permBtns, h('div', { class: 'ibx-reply' }, ta), h('div', { class: 'ibx-acts' }, mic, sentTag, h('span', { class: 'sp' }), seenBtn, chatBtn, sendBtn));
-    Object.assign(row, { ta, grow, badge, msg, more, title, tag, av, sentTag, pid: null, text: null });
+    Object.assign(row, { ta, grow, badge, msg, more, title, tag, av, sentTag, pid: null, text: null, permBtns, ynBtns: [allowBtn, denyBtn, tellBtn], menu: '' });
     return row;
   }
 
@@ -95,6 +96,8 @@
       row.more.classList.toggle('hidden', t.length < 170 && t.split('\n').length < 3);
     }
     row.sentTag.classList.toggle('hidden', !IBX.sent.has(it.name));
+    const mk = menuKey(cl.menu);
+    if (row.menu !== mk) { row.menu = mk; row.permBtns.replaceChildren(...(cl.menu ? menuButtons(it.name, cl.menu, () => { IBX.sent.set(it.name, cl.state); row.sentTag.classList.remove('hidden'); }) : row.ynBtns)); }
   }
 
   function render() {

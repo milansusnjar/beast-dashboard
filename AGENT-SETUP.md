@@ -41,6 +41,7 @@ Node 18+ (no external packages; developed on v24). Then:
 | `tailscale` | the intended remote access path | see *Access* |
 | `python3` | only `bin/make-icons.py`, for regenerating PWA icons | nothing at runtime |
 | `nvidia-smi` | GPU tile in the system stats | tile is omitted |
+| `cargo` | building the Rust process probe (`bin/probe-mode.sh build`, then `rust`) | Node reads /proc and spawns `ss` — same data, a little slower |
 
 `sudo apt install tmux socat git ttyd` covers most of it. Install what's missing, then say which
 optional tools you skipped and what the user loses — don't silently install docker or tailscale.
@@ -118,6 +119,13 @@ Ask the user whether they want voice input transcribed on this server. If yes, r
 otherwise CPU — then set `WHISPER_MODEL='small'` in `whisper/whisper.env`). Put the languages they speak
 in `WHISPER_LANGS` there. Nothing runs until the mic is pressed; the first press downloads the model
 (~1.6 GB for large-v3-turbo). Without it the mic uses the browser's speech recognition.
+
+## Process probe (optional)
+
+If `cargo` 1.78+ is available (or the user agrees to install a minimal toolchain with rustup — distro `cargo` packages are
+often older), run
+`bin/probe-mode.sh build` and then `bin/probe-mode.sh rust`; `bin/probe-mode.sh status` must then say
+`running: rust`. Skipping it changes nothing visible — the Node path gives the same data.
 
 ## Claude Code hooks
 

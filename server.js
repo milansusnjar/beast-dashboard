@@ -1,5 +1,6 @@
 'use strict';
 const http = require('http');
+const zlib = require('zlib');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
@@ -10,8 +11,10 @@ const git = require('./lib/gitinfo');
 const rt = require('./lib/runtime');
 const sys = require('./lib/sys');
 const hogs = require('./lib/hogs');
+const probe = require('./lib/probe');
+const { detachHelpers } = require('./lib/detach');
 // a process's cwd -> the project it runs in (deepest matching project path)
-hogs.setResolver(cwd => { let best = null; for (const p of projects) if ((cwd === p.path || cwd.startsWith(p.path + '/')) && (!best || p.path.length > best.path.length)) best = p; return best; });
+hogs.setResolver(cwd => { const id = rt.attributeTo(projects, cwd); return id ? projects.find(p => p.id === id) : null; });
 const expose = require('./lib/expose');
 const actions = require('./lib/actions');
 const claude = require('./lib/claude');
@@ -49,7 +52,7 @@ let lastStateJson = '';
 
 function stateObj() {
   const s = settings.get();
-  return { projects: projects.map(p => ({ ...p, git: gitStatus[p.id] || null })), runtime: { ...snapshot, manual: expose.manual() }, settings: s, host: { tsIp: TS_IP, tsName: expose.tailscaleName(), tailscale: TS_INFO, publicHost: s.publicHost || TS_IP || 'localhost', terminalPort: 7681, hostname: require('os').hostname(), devRoot: s.devRoot, user: process.env.USER || 'user', lastResume: LAST_RESUME, startedAt: STARTED_AT, build: build(), pushSubs: push.subscriptions().length }, claude: { restorable: claude.restorable(), usage: usage.summary(), limits: limits.all(), installed: CLAUDE_VERSION, schedule: schedule.all(), tasks: tasks.all() }, health: health.all(), crashes: recentCrashes(), stats: sys.latest(), statsHistory: sys.history() };
+  return { projects: projects.map(p => ({ ...p, git: gitStatus[p.id] || null })), runtime: { ...snapshot, manual: expose.manual() }, settings: s, host: { tsIp: TS_IP, tsName: expose.tailscaleName(), tailscale: TS_INFO, publicHost: s.publicHost || TS_IP || 'localhost', terminalPort: 7681, hostname: require('os').hostname(), devRoot: s.devRoot, user: process.env.USER || 'user', lastResume: LAST_RESUME, startedAt: STARTED_AT, build: build(), pushSubs: push.subscriptions().length, probe: probe.status() }, claude: { restorable: claude.restorable(), usage: usage.summary(), limits: limits.all(), installed: CLAUDE_VERSION, schedule: schedule.all(), tasks: tasks.all() }, health: health.all(), crashes: recentCrashes(), stats: sys.latest(), statsHistory: sys.history() };
 }
 let TS_IP = null, TS_INFO = null, LAST_RESUME = null, LAST_TICK = Date.now();
 // front-end build id = newest mtime of public/*: a client that sees it change reloads itself, so a PWA that sat open
@@ -59,10 +62,27 @@ function build() { if (Date.now() - buildAt > 5000) { buildAt = Date.now(); try 
 const STARTED_AT = Date.now();
 
 function broadcast(event, data) { const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`; for (const res of clients) res.write(msg); }
+let base = null, baseSeq = 0;
+function diffOps(a, b, p = [], ops = []) {
+  if (a === b) return ops;
+  if (b === undefined) { ops.push([p]); return ops; }
+  const isObj = x => x !== null && typeof x === 'object';
+  if (isObj(a) && isObj(b) && Array.isArray(a) === Array.isArray(b) && (!Array.isArray(a) || a.length === b.length)) {
+    for (const k of Object.keys(b)) diffOps(a[k], b[k], [...p, k], ops);
+    if (!Array.isArray(a)) for (const k of Object.keys(a)) if (!Object.hasOwn(b, k)) ops.push([[...p, k]]);
+    return ops;
+  }
+  ops.push([p, b]);
+  return ops;
+}
 function pushState(force) {
   const s = stateObj(); delete s.statsHistory; delete s.stats;
   const j = JSON.stringify(s);
-  if (force || j !== lastStateJson) { lastStateJson = j; broadcast('state', s); }
+  if (!force && j === lastStateJson) return;
+  const next = JSON.parse(j); const prev = base;
+  lastStateJson = j; base = next; baseSeq++;
+  if (prev && !force) broadcast('patch', { from: baseSeq - 1, to: baseSeq, ops: diffOps(prev, next) });
+  else broadcast('state', { ...next, seq: baseSeq });
 }
 
 async function rescan() {
@@ -95,20 +115,34 @@ function watchGit() {
   }
 }
 
-async function tick() {
+const TICK_STUCK_MS = 60000;
+let tickRun = null, tickNext = null, tickStartedAt = 0;
+function tick() {
+  if (tickRun && Date.now() - tickStartedAt < TICK_STUCK_MS) {
+    if (!tickNext) tickNext = tickRun.then(() => { tickNext = null; return tick(); });
+    return tickNext;
+  }
+  if (tickRun) console.error(`tick: previous tick still running after ${TICK_STUCK_MS / 1000} s, starting a new one`);
+  tickStartedAt = Date.now();
+  const run = tickBody().finally(() => { if (tickRun === run) tickRun = null; });
+  tickRun = run;
+  return run;
+}
+async function tickBody() {
   try {
     const now = Date.now();
     if (now - LAST_TICK > 45000) { LAST_RESUME = now; console.log(`resume detected (gap ${Math.round((now - LAST_TICK) / 1000)}s)`); }
     LAST_TICK = now;
     TS_IP = await expose.tailscaleIp(); TS_INFO = await expose.tailscaleInfo();
-    snapshot = await rt.snapshot(projects);
-    if (!TEST) await expose.reconcile(snapshot, settings.get().autoExpose);
-    if (snapshot.exposures.length) snapshot = { ...snapshot, exposures: (await rt.snapshot(projects)).exposures }; // refresh exposure list after reconcile
-    await decorateClaude();
+    let snap = await rt.snapshot(projects);
+    if (!TEST && await expose.reconcile(snap, settings.get().autoExpose)) snap = { ...snap, exposures: await rt.exposures() };
+    await decorateClaude(snap);
+    snapshot = snap;
     await probeHealth();
     detectCrashes();
     await claudeVersion();
     weeklyDigest().catch(() => {}); backupState();
+    if (!TEST) detachHelpers().catch(e => console.error('detach', e));
     pushState(false);
     autoRestore().catch(e => console.error('auto-restore', e));
     refreshGit(false).then(() => pushState(false));
@@ -204,15 +238,15 @@ async function autoRestore() {
 
 // Claude sessions: peek at every claude-* pane, merge with hook state, keep the restore list current, scan usage.
 let lastUsageScan = 0;
-async function decorateClaude() {
-  const names = snapshot.sessions.map(s => s.name);
+async function decorateClaude(snap) {
+  const names = snap.sessions.map(s => s.name);
   // a Claude session is anything named claude-* (dashboard / `cs` helper) or whose foreground process is `claude` (started by hand)
   const isClaude = s => s.name.startsWith('claude-') || s.current === 'claude' || !!claude.get(s.name);
-  const cl = snapshot.sessions.filter(isClaude).map(s => s.name);
+  const cl = snap.sessions.filter(isClaude).map(s => s.name);
   await claude.refreshPeeks(cl);
   claude.reconcile(names);
   claude.refreshTitles();
-  for (const s of snapshot.sessions) if (isClaude(s)) { s.claude = claude.info(s.name, s.activity); s.claude.usage = usage.bySession(s.claude.sessionId); Object.assign(s.claude, await whereIs(s)); if (s.claudeVersion) s.claude.version = s.claudeVersion; }
+  for (const s of snap.sessions) if (isClaude(s)) { s.claude = claude.info(s.name, s.activity); s.claude.usage = usage.bySession(s.claude.sessionId); Object.assign(s.claude, await whereIs(s)); if (s.claudeVersion) s.claude.version = s.claudeVersion; }
   if (Date.now() - lastUsageScan > 30000) { lastUsageScan = Date.now(); usage.scan().then(() => pushState(false)); }
 }
 // Where a Claude session actually works: its branch, and whether that is a git worktree apart from the project
@@ -269,7 +303,7 @@ claude.onChange((ev, r, prev) => {
   setTimeout(tick, 150);
 });
 
-async function statsTick() { try { const s = await sys.sample(); try { s.hogs = hogs.sample(); } catch (e) { s.hogs = []; } sys.tempsSample(s); systemAlerts(s); broadcast('stats', s); } catch (e) { console.error('stats failed', e); } }
+async function statsTick() { try { const s = await sys.sample(); try { const table = await probe.procs(); s.hogs = hogs.sample(Date.now(), table); } catch (e) { s.hogs = []; } sys.tempsSample(s); systemAlerts(s); broadcast('stats', s); } catch (e) { console.error('stats failed', e); } }
 // Phone buzz when the machine itself is in trouble: CPU too hot, memory nearly gone, a process pinning many cores for
 // a long time. Each alert at most once per 30 min (per process: once per its life), under the 'system' toggle.
 const sysAlertAt = new Map(); let hotSince = null;
@@ -357,7 +391,30 @@ function sameOrigin(req, path) {
   if (path.startsWith('/api/') && sfs && sfs !== 'same-origin' && sfs !== 'none' && !(paste && sfs === 'same-site')) return false;
   return true;
 }
-function json(res, code, obj) { res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); res.end(JSON.stringify(obj)); }
+const GZIP_TYPE = /^(text\/|application\/(json|manifest\+json)|image\/svg)/;
+function wantsGzip(req) { return !!req && /\bgzip\b/.test(req.headers['accept-encoding'] || ''); }
+function send(res, code, headers, body, level = 1) {
+  const buf = Buffer.isBuffer(body) ? body : Buffer.from(String(body));
+  if (buf.length > 1400 && GZIP_TYPE.test(headers['content-type'] || '') && wantsGzip(res.req)) {
+    const z = zlib.gzipSync(buf, { level });
+    res.writeHead(code, { ...headers, 'content-encoding': 'gzip', vary: 'accept-encoding', 'content-length': z.length }); return res.end(z);
+  }
+  res.writeHead(code, { ...headers, vary: 'accept-encoding', 'content-length': buf.length }); res.end(buf);
+}
+function json(res, code, obj) { send(res, code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }, JSON.stringify(obj)); }
+const staticGz = new Map();
+function sendStatic(req, res, fp, url) {
+  const st = fs.statSync(fp); const type = MIME[path.extname(fp)] || 'application/octet-stream';
+  const etag = `W/"${st.size.toString(36)}-${Math.round(st.mtimeMs).toString(36)}"`;
+  const headers = { 'content-type': type, 'cache-control': url.searchParams.has('v') ? 'private, max-age=31536000, immutable' : 'no-cache', etag };
+  if (req.headers['if-none-match'] === etag) { res.writeHead(304, headers); return res.end(); }
+  if (!GZIP_TYPE.test(type)) { res.writeHead(200, { ...headers, 'content-length': st.size }); return fs.createReadStream(fp).pipe(res); }
+  const raw = fs.readFileSync(fp);
+  if (!wantsGzip(req) || raw.length <= 1400) return send(res, 200, headers, raw);
+  let c = staticGz.get(fp);
+  if (!c || c.etag !== etag) { c = { etag, gz: zlib.gzipSync(raw, { level: 9 }) }; staticGz.set(fp, c); }
+  res.writeHead(200, { ...headers, 'content-encoding': 'gzip', vary: 'accept-encoding', 'content-length': c.gz.length }); res.end(c.gz);
+}
 function body(req, max = 1e6) { return new Promise((resolve, reject) => { let d = ''; req.on('data', c => { d += c; if (d.length > max) req.destroy(); }); req.on('end', () => { try { resolve(d ? JSON.parse(d) : {}); } catch (e) { reject(e); } }); }); }
 function sse(res) { res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive', 'x-accel-buffering': 'no' }); res.write(': hi\n\n'); }
 const proj = id => projects.find(p => p.id === id);
@@ -382,8 +439,9 @@ async function api(req, res, url) {
   const m = req.method;
   if (m === 'GET' && parts[0] === 'state') return json(res, 200, stateObj());
   if (m === 'GET' && parts[0] === 'events') {
+    if (!base) pushState(true);
     sse(res); clients.add(res); setPace();
-    res.write(`event: state\ndata: ${JSON.stringify((() => { const s = stateObj(); delete s.statsHistory; delete s.stats; return s; })())}\n\n`);
+    res.write(`event: state\ndata: ${JSON.stringify({ ...base, seq: baseSeq })}\n\n`);
     res.write(`event: history\ndata: ${JSON.stringify(sys.history())}\n\n`);
     if (sys.latest()) res.write(`event: stats\ndata: ${JSON.stringify(sys.latest())}\n\n`);
     const ka = setInterval(() => res.write(': ka\n\n'), 20000);
@@ -542,7 +600,7 @@ async function api(req, res, url) {
     const t = transcript.tool(file, id); return json(res, t.error ? 404 : 200, t);
   }
   if (m === 'GET' && parts[0] === 'transcript' && parts[1]) { // last N turns of a Claude session, by tmux name
-    const r = claude.get(decodeURIComponent(parts[1])); if (!r) return json(res, 404, { error: 'no transcript known for this session yet (it appears after its first hook event)' });
+    const r = claude.get(decodeURIComponent(parts[1])); if (!r) return json(res, 200, { ...transcript.tail('', 1), touched: [], cwd: null, sessionId: null, noHooks: true });
     return json(res, 200, { ...transcript.tail(r.transcriptPath || '', Math.min(200, +url.searchParams.get('n') || 40)), touched: r.touched || [], cwd: r.cwd, sessionId: r.sessionId });
   }
   if (m === 'GET' && parts[0] === 'transcript') { // any past conversation by transcript file (from search)
@@ -708,6 +766,7 @@ async function api(req, res, url) {
       if (typeof b.session !== 'string' || typeof b.text !== 'string') return json(res, 400, { error: 'session + text' });
       const r = await claude.send(b.session, b.text.slice(0, 4000), b.enter !== false); setTimeout(tick, 400); return json(res, r.ok ? 200 : 400, r);
     }
+    case 'choose': { const r = await claude.choose(String(b.session || ''), b.index, b.label); setTimeout(tick, 400); return json(res, r.ok ? 200 : 409, r); }
     case 'key': { const r = await claude.key(String(b.session || ''), String(b.key || '')); setTimeout(tick, 400); return json(res, r.ok ? 200 : 400, r); }
     case 'push-subscribe': { const r = push.subscribe(b.subscription, b.label); pushState(true); return json(res, r.ok ? 200 : 400, r); }
     case 'push-unsubscribe': { const r = push.unsubscribe(b.endpoint); pushState(true); return json(res, 200, r); }
@@ -764,10 +823,9 @@ const server = http.createServer(async (req, res) => {
     if (!fp.startsWith(PUBLIC) || !fs.existsSync(fp)) { res.writeHead(404); return res.end('404'); }
     if (f === '/index.html') { // stamp the build: the page knows which version it is, and app.js / style.css can't come from an older cache
       const v = uiVersion(); const html = fs.readFileSync(fp, 'utf8').replace('</head>', `<meta name="bd-ver" content="${v}"></head>`).replace(/src="\/(app|f-[\w-]+)\.js"/g, `src="/$1.js?v=${v}"`).replace(/href="\/(style|f-[\w-]+)\.css"/g, `href="/$1.css?v=${v}"`);
-      res.writeHead(200, { 'content-type': MIME['.html'], 'cache-control': 'no-cache, no-store' }); return res.end(html);
+      return send(res, 200, { 'content-type': MIME['.html'], 'cache-control': 'no-cache, no-store' }, html, 6);
     }
-    res.writeHead(200, { 'content-type': MIME[path.extname(fp)] || 'application/octet-stream', 'cache-control': 'no-cache' });
-    fs.createReadStream(fp).pipe(res);
+    return sendStatic(req, res, fp, url);
   } catch (e) { console.error(e); if (!res.headersSent) json(res, 500, { error: String(e.message || e) }); else try { res.end(); } catch {} }
 });
 

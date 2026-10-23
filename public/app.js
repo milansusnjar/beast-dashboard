@@ -134,11 +134,11 @@ async function renderChatPane(force) {
   if (!on) return;
   if (pane.dataset.name !== name) { pane.innerHTML = ''; pane.append(h('div', { class: 'dim', style: 'padding:20px' }, 'loading…')); pane.dataset.name = name; TERM.chatEv.key = ''; }
   if (TERM.chatEv.busy) return; TERM.chatEv.busy = true;
-  let t; try { t = await api(`transcript/${encodeURIComponent(name)}?n=${TERM.chatN}`); } catch (e) { TERM.chatEv.busy = false; pane.replaceChildren(h('div', { class: 'dim', style: 'padding:20px' }, e.message, ' — this session has no transcript yet; use the terminal.')); return; }
+  let t; try { t = await api(`transcript/${encodeURIComponent(name)}?n=${TERM.chatN}`); } catch { t = { total: 0, turns: [], size: 0, pending: null, empty: true }; }
   TERM.chatEv.busy = false;
   if (TERM.active !== name) return;
   if (document.body.classList.contains('recording')) return;   // never rebuild the reply box under a running recording; the next poll catches up
-  const cl = claudeOf(name) || {}; const key = [name, t.size, t.total, cl.state, cl.lastTool, TERM.chatN, (PENDING[name] || []).length, queuedKey(name), (cl.status || '').split(' (')[0], t.pending || ''].join(':');
+  const cl = claudeOf(name) || {}; const key = [name, t.size, t.total, cl.state, cl.lastTool, TERM.chatN, (PENDING[name] || []).length, queuedKey(name), (cl.status || '').split(' (')[0], t.pending || '', menuKey(cl.menu)].join(':');
   if (!force && TERM.chatEv.key === key) { const st = pane.querySelector('.ag-status'); if (st && cl.status) st.textContent = cl.status; return; }   // same turn: just tick Claude's status line
   TERM.chatEv.key = key;
   renderConversation(pane, name, t, { n: TERM.chatN, more: () => { TERM.chatN = Math.min(200, TERM.chatN * 2); renderChatPane(true); }, refresh: () => renderChatPane(false) });
@@ -248,12 +248,18 @@ function newTerminalModal() {
   const renderOpts = () => opts.replaceChildren(
     h('span', { class: 'ntl' }, 'Account'), seg([['personal', acct('personal')], ['company', acct('company')]], NT.acct, v => { NT.acct = v; localStorage.setItem('bd.nt.acct', v); }),
     h('span', { class: 'ntl' }, 'Session'), seg([[false, 'New'], [true, 'Resume last']], NT.resume, v => { NT.resume = v; localStorage.setItem('bd.nt.resume', v ? '1' : '0'); }));
-  const go = p => { close(); startClaude(p, NT.acct, NT.resume ? { resume: true } : {}); };
+  const baseName = p => 'claude-' + p.dirName.replace(/[^A-Za-z0-9_.-]+/g, '-') + (NT.acct === 'company' ? '-company' : '');
+  const runningOn = p => S.runtime.sessions.filter(x => x.project === p.id && isClaudeSession(x) && (x.name.endsWith('-company') ? 'company' : 'personal') === NT.acct);
+  const go = p => { close(); startClaude(p, NT.acct, NT.resume ? { resume: true } : S.runtime.sessions.some(x => x.name === baseName(p)) ? { fresh: true } : {}); };
   const shown = () => { const q = NT.q.trim().toLowerCase(); return S.projects.filter(p => !p.hidden && (NT.org === 'all' || p.org === NT.org) && (!q || [p.name, p.org, p.dirName, p.group].join(' ').toLowerCase().includes(q))); };
   const renderList = () => {
-    const r = shown(); const base = p => 'claude-' + p.dirName.replace(/[^A-Za-z0-9_.-]+/g, '-') + (NT.acct === 'company' ? '-company' : '');
-    const live = new Set(S.runtime.sessions.map(x => x.name));
-    list.replaceChildren(...(r.length ? r.map(p => h('div', { class: 'ntrow', onclick: () => go(p) }, avatar(p.id, 'sm'), h('div', { class: 'ntn' }, h('div', { class: 'ntt' }, p.name), h('div', { class: 'nts' }, [p.org, p.group].filter(Boolean).join(' · '))), live.has(base(p)) ? h('span', { class: 'badge tag acc ' + NT.acct }, 'running → attach') : NT.resume ? h('span', { class: 'dim', style: 'font-size:11.5px' }, '↺ --continue') : null)) : [h('div', { class: 'tsempty' }, 'No project matches.')]));
+    const r = shown(); const live = new Set(S.runtime.sessions.map(x => x.name));
+    const onRow = p => {
+      const on = runningOn(p); if (!on.length) return NT.resume ? h('span', { class: 'dim', style: 'font-size:11.5px' }, '↺ --continue') : null;
+      if (NT.resume && live.has(baseName(p))) return h('span', { class: 'badge tag acc ' + NT.acct }, 'running → attach');
+      return h('span', { class: 'ntrun' }, h('span', { class: 'badge tag acc ' + NT.acct }, `${on.length} running · ＋ new`), h('button', { class: 'btn sm ghost', title: 'open the running one instead: ' + on.map(x => x.name).join(', '), onclick: ev => { ev.stopPropagation(); close(); openTerm(on[0].name); } }, 'open'));
+    };
+    list.replaceChildren(...(r.length ? r.map(p => h('div', { class: 'ntrow', onclick: () => go(p) }, avatar(p.id, 'sm'), h('div', { class: 'ntn' }, h('div', { class: 'ntt' }, p.name), h('div', { class: 'nts' }, [p.org, p.group].filter(Boolean).join(' · '))), FEAT.worktrees?.pickerChip?.(p), onRow(p))) : [h('div', { class: 'tsempty' }, 'No project matches.')]));
   };
   const orgs = [...new Set(S.projects.filter(p => !p.hidden).map(p => p.org).filter(Boolean))];
   const orgChips = h('span', { class: 'chips sm' }, ['all', ...orgs].map(o => h('button', { class: 'chip' + (NT.org === o ? ' on' : ''), onclick: () => { NT.org = o; orgChips.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c.dataset.o === o)); renderList(); }, 'data-o': o }, o === 'all' ? 'All' : o)));
@@ -279,9 +285,15 @@ function termSessions() {
   }
   // NO sorting by state: the user switches between these all day and relies on each one keeping its position.
   // Order = tmux's own (alphabetical by session name), which is stable for the life of a session.
+  out.claude = orgOrder(out.claude);
   out.all = [...out.claude, ...out.dev, ...out.other];
   return out;
 }
+function orgGroups(list) {
+  const orgs = [...new Set(list.map(x => x.org || ''))].sort((a, b) => (!a - !b) || a.localeCompare(b));
+  return orgs.map(org => ({ org, items: list.filter(x => (x.org || '') === org) }));
+}
+const orgOrder = list => orgGroups(list).flatMap(og => claudeGroups(og.items).flatMap(g => g.items));
 const STATE_LABEL = { working: 'working', background: 'background agents running', permission: 'needs permission', 'needs-you': 'done · needs you', error: 'error', limit: 'usage limit', idle: 'idle', unknown: 'no signal yet', ended: 'claude exited' };
 const STATE_ICON = { working: '●', background: '◐', permission: '⚠', 'needs-you': '✓', error: '✗', limit: '⏳', idle: '○', unknown: '·', ended: '■' };
 const STATE_SHORT = { working: 'working', background: 'background', permission: 'permission', 'needs-you': 'needs you', error: 'error', limit: 'limit', idle: 'idle', unknown: '—', ended: 'exited' };
@@ -300,6 +312,8 @@ function instOf(it) {
 function claudeGroups(list) {
   const groups = []; const by = new Map();
   for (const it of list) { const key = it.pid || it.name; let g = by.get(key); if (!g) { g = { key, pid: it.pid, project: it.project, org: it.org, items: [] }; by.set(key, g); groups.push(g); } g.items.push(it); }
+  const rank = it => { const i = instOf(it); return (i.wt ? 1000 : 0) + (i.n || 1); };
+  for (const g of groups) g.items.sort((a, b) => rank(a) - rank(b));
   return groups;
 }
 const GROUP_SEL = JSON.parse(localStorage.getItem('bd.gsel') || '{}');
@@ -359,10 +373,15 @@ function renderTermPanel(force) {
   const section = (title, arr, kind) => arr.length ? [h('div', { class: 'tsec' }, title, h('span', { class: 'n' }, arr.length)), ...arr.map(it => item(it, kind))] : [];
   // Claude: one row per session; a project with several Claudes gets a header row and its sessions indented under it (tabs)
   const claudeRows = [];
-  for (const g of claudeGroups(S3.claude)) {
-    if (g.items.length === 1) { claudeRows.push(item(g.items[0], 'claude')); continue; }
-    claudeRows.push(h('div', { class: 'tgrp', style: `--org:${orgColor(g.org)}` }, avatar(g.pid, 'sm'), h('span', { class: 'tgn' }, g.project), h('span', { class: 'n' }, g.items.length), h('span', { class: 'sp' }), g.pid ? h('button', { class: 'x plus', title: 'another Claude on this project', onclick: ev => plusClaude(ev, g.pid) }, ico('plus', 13)) : null));
-    for (const it of g.items) claudeRows.push(item(it, 'claude', true));
+  for (const og of orgGroups(S3.claude)) {
+    const rows = [];
+    for (const g of claudeGroups(og.items)) {
+      if (g.items.length === 1) { rows.push(item(g.items[0], 'claude')); continue; }
+      rows.push(h('div', { class: 'tgrp', style: `--org:${orgColor(g.org)}` }, avatar(g.pid, 'sm'), h('span', { class: 'tgn' }, g.project), h('span', { class: 'n' }, g.items.length), h('span', { class: 'sp' }), g.pid ? h('button', { class: 'x plus', title: 'another Claude on this project', onclick: ev => plusClaude(ev, g.pid) }, ico('plus', 13)) : null));
+      for (const it of g.items) rows.push(item(it, 'claude', true));
+    }
+    if (og.items.length < 2 || !og.org) { claudeRows.push(...rows); continue; }
+    claudeRows.push(h('div', { class: 'torg', style: `--org:${orgColor(og.org)}` }, h('div', { class: 'torg-h' }, h('i', null), og.org, h('span', { class: 'n' }, og.items.length)), ...rows));
   }
   list.append(...(S3.claude.length ? [h('div', { class: 'tsec' }, 'Claude instances', h('span', { class: 'n' }, S3.claude.length)), ...claudeRows] : []), ...section('Dev servers', S3.dev, 'dev'), ...section('Other tmux', S3.other, 'other'));
   // opened frames whose session vanished (or plain shells)
@@ -642,7 +661,7 @@ function agentCard(it) {
   let line;   // [class, icon, text]
   if (st === 'working') line = ['work', h('span', { class: 'spin' }), cl.lastTool ? cl.lastTool : 'thinking…'];
   else if (st === 'background') line = ['work', '◐', bgText(cl.bg)];
-  else if (st === 'permission') line = ['need', '⚠', 'Needs you — wants to run: ' + (cl.lastTool || '?')];
+  else if (st === 'permission') line = ['need', '⚠', cl.menu ? 'Needs you — ' + oneLine(cl.menu.text.filter(Boolean).slice(-1)[0] || 'Claude is asking') : 'Needs you — wants to run: ' + (cl.lastTool || '?')];
   else if (st === 'limit') line = ['need', '⏳', 'Usage limit — ' + oneLine(cl.limitText || (acct(it.account) + ' account'))];
   else if (st === 'error') line = ['err', '✗', 'Error — ' + oneLine(cl.lastMessage || 'open the terminal')];
   else if (st === 'needs-you') line = ['need', '✓', 'Needs you — ' + oneLine(cl.lastMessage || 'finished')];
@@ -977,7 +996,7 @@ async function renderSessionDrawer(full = true) {
     let t; try { t = await api(`transcript/${encodeURIComponent(name)}?n=${SESS.n}`); } catch { SESS.busy = false; return; } SESS.busy = false;
     if (SESS.name !== name) return;
     if (document.body.classList.contains('recording')) return;   // same as the chat pane: not while recording
-    const key = [name, t.size, t.total, cl.state, cl.lastTool, SESS.n, (PENDING[name] || []).length, queuedKey(name), (cl.status || '').split(' (')[0], t.pending || ''].join(':'); if (SESS.key === key) { const st = body.querySelector('.ag-status'); if (st && cl.status) st.textContent = cl.status; return; } SESS.key = key;
+    const key = [name, t.size, t.total, cl.state, cl.lastTool, SESS.n, (PENDING[name] || []).length, queuedKey(name), (cl.status || '').split(' (')[0], t.pending || '', menuKey(cl.menu)].join(':'); if (SESS.key === key) { const st = body.querySelector('.ag-status'); if (st && cl.status) st.textContent = cl.status; return; } SESS.key = key;
     renderConversation(body, name, t, { n: SESS.n, more: () => { SESS.n = Math.min(200, SESS.n * 2); renderSessionDrawer(); }, refresh: () => renderSessionDrawer(false) });
     return;
   }
@@ -1001,13 +1020,29 @@ async function renderSessionDrawer(full = true) {
         h('span', { class: 'chst s' + (f.tool === 'Write' ? 'A' : 'M') }, f.tool === 'Write' ? 'W' : 'E'), fileIcon(f.path), h('span', { class: 'chpath' }, r), h('span', { class: 'dim mono', style: 'font-size:11px' }, ago(f.at) + ' ago'), h('span', { class: 'caret' }, '▸'))); }
     return;
   }
-  SESS.key = [name, t.size, t.total, cl.state, cl.lastTool, SESS.n, (PENDING[name] || []).length, queuedKey(name), (cl.status || '').split(' (')[0], t.pending || ''].join(':');
+  SESS.key = [name, t.size, t.total, cl.state, cl.lastTool, SESS.n, (PENDING[name] || []).length, queuedKey(name), (cl.status || '').split(' (')[0], t.pending || '', menuKey(cl.menu)].join(':');
   renderConversation(body, name, t, { n: SESS.n, more: () => { SESS.n = Math.min(200, SESS.n * 2); renderSessionDrawer(); }, refresh: () => renderSessionDrawer(false) });
 }
 // The conversation itself: turns, tool calls, and a reply box that grows with the text and stays above the keyboard.
 // `t` is the /api/transcript payload. Draft text in the reply box survives re-renders.
 const queuedKey = name => (S.claude?.schedule || []).filter(j => j.session === name && j.whenFree && j.state === 'waiting').map(j => j.id).join(',');   // re-render the chat when its queue changes
 const PENDING = {};   // name -> [{ text, ts }] messages sent from here that the transcript hasn't shown yet
+const menuKey = mn => mn ? mn.options.join('|') + '#' + mn.cur : '';
+const menuLabel = l => l.replace(/^\d+\.\s+/, '');
+function menuButtons(name, mn, done) {
+  return mn.options.map((l, i) => h('button', { class: 'btn sm cmenu-opt' + (i === mn.cur ? ' cur' : ''), onclick: async ev => {
+    const b = ev.currentTarget; b.disabled = true;
+    try { await api('choose', { session: name, index: i, label: l }); toast(menuLabel(l), 'ok'); } catch (e) { toast(e.message, 'err'); }
+    b.disabled = false; if (done) done();
+  } }, menuLabel(l)));
+}
+function menuCard(name, mn, done) {
+  return h('div', { class: 'turn assistant cmenu' },
+    h('div', { class: 'who' }, '⚠ Claude is asking'),
+    mn.text.length ? h('div', { class: 'cmenu-q' }, mn.text.join('\n')) : null,
+    h('div', { class: 'cmenu-opts' }, menuButtons(name, mn, done)),
+    h('div', { class: 'cmenu-esc' }, h('button', { class: 'btn sm ghost', onclick: () => api('key', { session: name, key: 'esc' }).then(() => { toast('Esc sent'); if (done) done(); }) }, 'Esc — cancel')));
+}
 // Unsent text is kept per chat (localStorage, so it survives switching chats, closing the panel and reloads).
 const draftKey = n => 'bd.draft.' + n;
 const loadDraft = n => { try { return localStorage.getItem(draftKey(n)) || ''; } catch { return ''; } };
@@ -1034,7 +1069,7 @@ function renderConversation(box, name, t, o) {
     conv.append(h('div', { class: 'turn ' + turn.role }, h('div', { class: 'who' }, '❯ you', turn.ts ? h('span', { class: 'dim mono' }, ' ' + new Date(turn.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) : null),
       turn.text ? h('div', { class: 'ttext', html: mdLite(turn.text) }) : null));
   }
-  if (!t.turns.length && !(PENDING[name] || []).length) conv.append(h('div', { class: 'dim', style: 'padding:24px 4px' }, 'New conversation — nothing said yet. Type your first message below.'));
+  if (!t.turns.length && !(PENDING[name] || []).length && !(claudeOf(name) || {}).menu) conv.append(h('div', { class: 'dim', style: 'padding:24px 4px' }, 'New conversation — nothing said yet. Type your first message below.'));
   // "send when free" messages waiting in the queue: shown as your next turn, with Send now / Cancel
   const queued = (S.claude?.schedule || []).filter(j => j.session === name && j.whenFree && j.state === 'waiting');
   for (const j of queued) conv.append(h('div', { class: 'turn user queued' },
@@ -1051,13 +1086,14 @@ function renderConversation(box, name, t, o) {
   const stop = async () => { const last = (PENDING[name] || []).slice(-1)[0]; try { await api('key', { session: name, key: 'esc' }); } catch {} PENDING[name] = []; if (last && !ta.value.trim()) { ta.value = last.text; grow(); } ta.focus(); toast('stopped — your text is back in the box'); setTimeout(o.refresh, 600); };
   if (busy || justSent) conv.append(h('div', { class: 'turn assistant live' }, h('div', { class: 'who' }, '✦ claude', h('span', { class: 'dim mono' }, cl.state === 'background' ? ' waiting on background agents' : busy ? ' working…' : ' starting…'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost stopb', title: 'interrupt (Esc) — your message goes back into the box', onclick: stop }, '■ Stop')), h('div', { class: 'ag-now' }, h('span', { class: 'spin' }), h('span', { class: 'mono' }, cl.state === 'background' ? bgText(cl.bg) : busy ? (cl.state === 'working' ? cl.lastTool || t.pending || 'thinking…' : t.pending || cl.lastTool || 'working…') : 'sending to Claude…')),
     cl.state === 'working' && cl.status ? h('div', { class: 'ag-status mono' }, cl.status) : null));   // Claude's own status line: "✻ Cooking… (2m 10s · ↓ 3.1k tokens)"
+  if (cl.menu) conv.append(menuCard(name, cl.menu, () => { for (const ms of [500, 1500, 3000]) setTimeout(o.refresh, ms); }));
   const scroller = h('div', { class: 'cscroll' }, bar, conv);
   // reply box: textarea that grows to 6 lines; Enter sends, Shift+Enter = newline; Esc button interrupts Claude
-  const ta = h('textarea', { class: 'creply', rows: 1, placeholder: cl.state === 'permission' ? 'y / n, or type…' : 'Message Claude…', title: 'Enter sends · Shift+Enter = new line', autocomplete: 'off', autocapitalize: 'sentences', spellcheck: true });
+  const ta = h('textarea', { class: 'creply', rows: 1, placeholder: cl.menu ? 'pick an option above first' : cl.state === 'permission' ? 'y / n, or type…' : 'Message Claude…', title: 'Enter sends · Shift+Enter = new line', autocomplete: 'off', autocapitalize: 'sentences', spellcheck: true });
   ta.value = prevDraft;
   const grow = () => { ta.style.height = '44px'; if (ta.value) ta.style.height = Math.min(Math.max(44, ta.scrollHeight), 6 * 24 + 20) + 'px'; saveDraft(name, ta.value); };   // every change goes through grow() -> the draft is saved
   const sendText = async (v) => { (PENDING[name] = PENDING[name] || []).push({ text: v, ts: Date.now() }); conv.append(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, '❯ you', h('span', { class: 'dim mono' }, ' sending…')), h('div', { class: 'ttext' }, v))); scroller.scrollTop = scroller.scrollHeight; try { await api('send', { session: name, text: v }); } catch (e) { toast(e.message, 'err'); } setTimeout(o.refresh, 700); setTimeout(o.refresh, 2500); };
-  const send = async () => { const v = ta.value.trim(); if (!v) return; ta.value = ''; grow();
+  const send = async () => { const v = ta.value.trim(); if (!v) return; if ((claudeOf(name) || {}).menu) { toast('Claude is asking something — pick an option above first', 'err'); return; } ta.value = ''; grow();
     (PENDING[name] = PENDING[name] || []).push({ text: v, ts: Date.now() });
     conv.append(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, '❯ you', h('span', { class: 'dim mono' }, ' sending…')), h('div', { class: 'ttext' }, v))); scroller.scrollTop = scroller.scrollHeight;
     try { await api('send', { session: name, text: v }); } catch (e) { toast(e.message, 'err'); PENDING[name] = PENDING[name].filter(x => x.text !== v); ta.value = v; grow(); }
@@ -1076,7 +1112,7 @@ function renderConversation(box, name, t, o) {
   const keys = h('div', { class: 'ckeys' }, attach, mic, clock, fileIn,
     jobs.length ? h('span', { class: 'sjobs' }, jobs.map(j => h('span', { class: 'sjob', title: j.prompts.join('\n\n') }, ico('clock', 12), ' ', j.whenFree ? 'when free' : new Date(j.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), j.prompts.length > 1 ? ` ×${j.prompts.length}` : '', j.state === 'running' || j.state === 'sent' ? ' · ' + j.state : '', h('button', { class: 'x', title: 'remove', onclick: () => api('schedule-remove', { id: j.id }) }, ico('x', 11))))) : null,
     cl.state === 'working' || cl.state === 'background' ? h('button', { class: 'btn sm ghost qk', title: 'interrupt Claude (Escape)', onclick: () => api('key', { session: name, key: 'esc' }).then(() => toast('Esc sent')) }, 'Esc') : null,
-    cl.state === 'permission' ? ['y', 'n'].map(k => h('button', { class: 'btn sm qk ' + (k === 'y' ? 'yes' : 'no'), onclick: () => api('send', { session: name, text: k, enter: false }) }, k)) : null,
+    cl.state === 'permission' && !cl.menu ? ['y', 'n'].map(k => h('button', { class: 'btn sm qk ' + (k === 'y' ? 'yes' : 'no'), onclick: () => api('send', { session: name, text: k, enter: false }) }, k)) : null,
     h('button', { class: 'btn sm ghost qk', title: 'send Ctrl-C', onclick: () => { if (confirm('Send Ctrl-C?')) api('key', { session: name, key: 'c-c' }); } }, '^C'));
   // Claude busy (working / waiting on background agents / asking permission): ⏳ queues the message instead of typing
   // it in now; the server sends it the moment the session is free
@@ -2019,16 +2055,24 @@ function renderRail() {
     if (st === 'background') return 'background agents';
     return (STATE_SHORT[st] || st) + (cl.since && st !== 'unknown' ? ' · ' + ago(cl.since) : '');
   };
-  const row = (it, kind) => {
+  const row = (it, kind, tuck) => {
     const cl = it.claude; const st = cl ? cl.state || 'unknown' : kind; const i = kind === 'claude' ? instOf(it) : null;
-    const nm = kind === 'claude' ? (cl?.label || (it.name.startsWith('sh-') ? it.name : it.project)) : kind === 'dev' ? it.project : it.name;
-    return h('button', { class: 'rrow k-' + kind + ' st-' + st + (act === it.name ? ' on' : '') + (cl?.needsYou ? ' need' : ''), title: it.name + (cl ? ' · ' + (STATE_LABEL[st] || st) : ''), onclick: () => openTerm(it.name) },
+    const nm = kind === 'claude' ? (cl?.label || (tuck ? (i.wt ? it.project : '#' + (i.n || 1)) : it.name.startsWith('sh-') ? it.name : it.project)) : kind === 'dev' ? it.project : it.name;
+    return h('button', { class: 'rrow k-' + kind + ' st-' + st + (tuck ? ' sub' : '') + (act === it.name ? ' on' : '') + (cl?.needsYou ? ' need' : ''), title: it.name + (cl ? ' · ' + (STATE_LABEL[st] || st) : ''), onclick: () => openTerm(it.name) },
       h('i', { class: 'rdot' }),
-      h('span', { class: 'rtx' }, h('span', { class: 'rnm' }, h('b', null, nm), i && i.n ? h('em', null, '#' + i.n) : null, i && i.wt ? h('em', { class: 'wt' }, '⎇ ' + i.wt.name) : null, kind === 'claude' ? h('span', { class: 'racc ' + it.account, title: 'Claude Code account: ' + acct(it.account) }, acct(it.account)) : null),
+      h('span', { class: 'rtx' }, h('span', { class: 'rnm' }, h('b', null, nm), i && i.n && !(tuck && !cl?.label && !i.wt) ? h('em', null, '#' + i.n) : null, i && i.wt ? h('em', { class: 'wt' }, '⎇ ' + i.wt.name) : null, kind === 'claude' ? h('span', { class: 'racc ' + it.account, title: 'Claude Code account: ' + acct(it.account) }, acct(it.account)) : null),
         h('span', { class: 'rsub' + (st === 'working' ? ' mono' : '') }, sub(it))));
   };
   const out = [];
-  if (S3.claude.length) out.push(...S3.claude.map(it => row(it, 'claude')));
+  for (const og of orgGroups(S3.claude)) {
+    const rows = [];
+    for (const g of claudeGroups(og.items)) {
+      if (g.items.length === 1) { rows.push(row(g.items[0], 'claude')); continue; }
+      rows.push(h('div', { class: 'rgrp-p' }, h('div', { class: 'rproj', title: g.items.length + ' Claude sessions on ' + g.project }, h('b', null, g.project), h('em', null, '×' + g.items.length)), ...g.items.map(it => row(it, 'claude', true))));
+    }
+    if (og.items.length < 2 || !og.org) { out.push(...rows); continue; }
+    out.push(h('div', { class: 'rgrp-o', style: `--org:${orgColor(og.org)}` }, h('div', { class: 'rorg' }, h('i', null), og.org, h('em', null, og.items.length)), ...rows));
+  }
   if (S3.dev.length) out.push(h('div', { class: 'rsec' }, 'Dev servers'), ...S3.dev.map(it => row(it, 'dev')));
   if (S3.other.length) out.push(h('div', { class: 'rsec' }, 'Shells'), ...S3.other.map(it => row(it, 'other')));
   if (!out.length) out.push(h('div', { class: 'rempty' }, 'No sessions yet.'));
@@ -2036,9 +2080,25 @@ function renderRail() {
 }
 
 // ---------- events ----------
+const LIVE = { base: null, seq: null };
+function applyState(d) { if (d.host && d.host.build) { if (!S.build) S.build = d.host.build; else if (S.build !== d.host.build) { S.build = d.host.build; newBuild(); } } Object.assign(S, { projects: d.projects, runtime: d.runtime, settings: d.settings, host: d.host, claude: d.claude || S.claude, health: d.health || S.health || {}, crashes: d.crashes || [] }); render(); }
+function applyOps(root, ops) {
+  for (const [p, ...val] of ops) {
+    if (p.includes('__proto__')) throw new Error('unsafe path');
+    let o = root; for (let i = 0; i < p.length - 1; i++) o = o[p[i]];
+    if (val.length) o[p[p.length - 1]] = val[0]; else delete o[p[p.length - 1]];
+  }
+}
+function reconnect() { try { UI.es && UI.es.close(); } catch {} LIVE.base = null; LIVE.seq = null; connect(); }
 function connect() {
   const es = new EventSource('/api/events');
-  es.addEventListener('state', e => { const d = JSON.parse(e.data); if (d.host && d.host.build) { if (!S.build) S.build = d.host.build; else if (S.build !== d.host.build) { S.build = d.host.build; newBuild(); } } Object.assign(S, { projects: d.projects, runtime: d.runtime, settings: d.settings, host: d.host, claude: d.claude || S.claude, health: d.health || S.health || {}, crashes: d.crashes || [] }); render(); firstState(); });
+  es.addEventListener('state', e => { const d = JSON.parse(e.data); LIVE.seq = d.seq; delete d.seq; LIVE.base = d; applyState(structuredClone(d)); firstState(); });
+  es.addEventListener('patch', e => {
+    const p = JSON.parse(e.data);
+    if (!LIVE.base || p.from !== LIVE.seq) return reconnect();
+    try { applyOps(LIVE.base, p.ops); } catch { return reconnect(); }
+    LIVE.seq = p.to; applyState(structuredClone(LIVE.base));
+  });
   es.addEventListener('history', e => { S.hist = JSON.parse(e.data); drawSparks(); });
   es.addEventListener('stats', e => { S.stats = JSON.parse(e.data); const H = S.hist; const push = (a, v) => { a.push(v); if (a.length > 180) a.shift(); }; push(H.cpu, S.stats.cpu.pct); push(H.mem, S.stats.mem.used / S.stats.mem.total * 100); push(H.gpu, S.stats.gpu?.util || 0); push(H.net, [S.stats.net.rxRate, S.stats.net.txRate]); renderRailFoot(); if (!UI.menuOpen && UI.view === 'home') renderStats(); });
   es.addEventListener('ding', e => { const d = JSON.parse(e.data); if (SOUND.on) ding(d.state); });
@@ -2047,10 +2107,10 @@ function connect() {
 }
 // Coming back to the foreground (phone unlock, tab switch): fetch the state right away instead of waiting for the
 // next event, and rebuild the stream if the browser dropped it while we were away.
+let hiddenAt = 0;
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) return;
-  api('state').then(d => { Object.assign(S, { projects: d.projects, runtime: d.runtime, settings: d.settings, host: d.host, claude: d.claude, health: d.health || {}, crashes: d.crashes || [] }); if (d.stats) S.stats = d.stats; render(); }).catch(() => {});
-  if (UI.es && UI.es.readyState === 2) { try { UI.es.close(); } catch {} connect(); }
+  if (document.hidden) { hiddenAt = Date.now(); return; }
+  if (!UI.es || UI.es.readyState !== 1 || Date.now() - hiddenAt > 30000) reconnect();
 });
 // short sound on the Mac when a session needs you (per-device setting; browsers only play after you interacted with the page)
 const SOUND = { on: localStorage.getItem('bd.sound') === '1' };
