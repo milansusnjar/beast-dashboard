@@ -813,7 +813,7 @@ async function api(req, res, url) {
   }
 }
 
-const server = http.createServer(async (req, res) => {
+async function handle(req, res) {
   if (!allowed(req)) { res.writeHead(403); return res.end('forbidden (not localhost / tailnet)'); }
   if (!hostOk(req)) { res.writeHead(403); return res.end('forbidden (unknown Host — reach it by IP, localhost or *.ts.net, or add this name to allowedHosts in state/settings.json and restart)'); }
   const url = new URL(req.url, 'http://x');
@@ -835,7 +835,21 @@ const server = http.createServer(async (req, res) => {
     }
     return sendStatic(req, res, fp, url);
   } catch (e) { console.error(e); if (!res.headersSent) json(res, e.status || 500, { error: String(e.message || e) }); else try { res.end(); } catch {} }
-});
+}
+const server = http.createServer(handle);
+const tailnetServers = new Map();
+async function bindTailnet(port) {
+  const r = await run('tailscale', ['ip'], { timeout: 3000 });
+  const ips = r.ok ? r.stdout.split('\n').map(x => x.trim()).filter(Boolean) : [];
+  if (!ips.length) return;
+  for (const [ip, srv] of tailnetServers) if (!ips.includes(ip)) { srv.close(); tailnetServers.delete(ip); console.log(`beast-dash: stopped listening on ${ip}`); }
+  for (const ip of ips) {
+    if (tailnetServers.has(ip)) continue;
+    const srv = http.createServer(handle); tailnetServers.set(ip, srv);
+    srv.on('error', e => { console.error(`beast-dash: cannot listen on ${ip}:${port} (${e.code || e.message}), retrying`); tailnetServers.delete(ip); });
+    srv.listen(port, ip, () => console.log(`beast-dash on http://${ip.includes(':') ? '[' + ip + ']' : ip}:${port}`));
+  }
+}
 
 (async () => {
   const s = settings.get();
@@ -848,6 +862,7 @@ const server = http.createServer(async (req, res) => {
     setInterval(() => runSchedule().catch(e => console.error('schedule', e)), 5000);
     setInterval(() => dailySummary().catch(e => console.error('daily', e)), 60000);   // scheduled prompts: own clock, not tied to the (slow when unwatched) tick
   }
-  server.listen(s.port, TEST ? (process.env.BD_BIND || '127.0.0.1') : '0.0.0.0',   // BD_BIND: a test copy may listen on the tailnet IP (design preview)
-   () => console.log(`beast-dash on http://${TS_IP || '0.0.0.0'}:${s.port}  (${projects.length} projects)`));
+  server.listen(s.port, (TEST && process.env.BD_BIND) || '127.0.0.1',   // BD_BIND: a test copy may listen on the tailnet IP (design preview)
+   () => console.log(`beast-dash on http://127.0.0.1:${s.port}  (${projects.length} projects)`));
+  if (!TEST) { await bindTailnet(s.port); setInterval(() => bindTailnet(s.port).catch(e => console.error('bind', e)), 15000); }
 })();

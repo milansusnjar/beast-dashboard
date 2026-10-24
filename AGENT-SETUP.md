@@ -48,9 +48,10 @@ optional tools you skipped and what the user loses — don't silently install do
 
 ## Access — decide this before installing
 
-The server binds `0.0.0.0:8787` but **rejects every request that is not from `127.0.0.1` or a
+The server listens only on `127.0.0.1:8787` and on the machine's Tailscale IPs (re-checked every 15 s,
+so it binds once tailscale is up), and **rejects every request that is not from `127.0.0.1` or a
 Tailscale address** (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`) — see `allowed()` in `server.js`. That
-check is the security model; the dashboard runs commands and opens shells, so it must not be exposed.
+is the security model; the dashboard runs commands and opens shells, so it must not be exposed.
 
 - **Tailscale (what this was built for).** Install tailscale on the server and the client, then reach
   it at `http://<tailscale-ip>:8787`. `install.sh` adds a ufw rule allowing the `tailscale0`
