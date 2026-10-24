@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { plan } = require('../lib/expose');
+const expose = require('../lib/expose');
+const { plan } = expose;
 
 const IP = '100.64.0.1';
 const port = (port, proc, addr = '127.0.0.1') => ({ port, proc, addr, pid: port * 10, loopback: addr === '127.0.0.1' || addr === '::1', wildcard: false });
@@ -41,4 +42,22 @@ test('an auto forward whose target stopped listening is dropped', () => {
 test('socat forwards the dashboard did not start are left alone', () => {
   const s = snap({ ports: [port(5173, 'node')], exposures: [{ port: 5433, pid: 5, bind: '127.0.0.1', target: '10.0.0.9:5432' }, { port: 7000, pid: 6, bind: IP, target: '10.0.0.9:7000' }] });
   assert.deepStrictEqual(plan(s, IP, { auto: false, manualPorts: none, deny: [] }).kill, []);
+});
+
+test('debugger ports are never auto-exposed and inspector flags are recognised', () => {
+  assert.deepStrictEqual(expose.debugPorts('node --inspect server.js'), [9229]);
+  assert.deepStrictEqual(expose.debugPorts('node --inspect-brk=127.0.0.1:9333 app.js'), [9333]);
+  assert.deepStrictEqual(expose.debugPorts('chrome --remote-debugging-port=9555'), [9555]);
+  assert.deepStrictEqual(expose.debugPorts('node server.js'), []);
+});
+
+test('ours without an ip accepts only tailnet binds forwarding to the same loopback port', () => {
+  assert.ok(expose.ours({ port: 3000, bind: '100.64.1.2', target: '127.0.0.1:3000' }, null));
+  assert.ok(!expose.ours({ port: 5433, bind: '127.0.0.1', target: '10.0.0.9:5432' }, null));
+  assert.ok(!expose.ours({ port: 3000, bind: '192.168.1.5', target: '127.0.0.1:3000' }, null));
+});
+
+test('the Node inspector port is not auto-forwarded and a bad exposeDeny value is ignored', () => {
+  const s = snap({ ports: [port(5173, 'node'), port(9229, 'node')] });
+  assert.deepStrictEqual(plan(s, IP, { auto: true, manualPorts: none, deny: 42 }).spawn, [[5173, '127.0.0.1']]);
 });

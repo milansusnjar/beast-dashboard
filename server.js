@@ -789,15 +789,15 @@ async function api(req, res, url) {
       const r = await actions.gitAction(p, b.action, b.action === 'commit' ? b.message : b.action === 'revert-file' ? b.file : b.branch); await refreshGitOne(p.id); pushState(true); return json(res, r.ok ? 200 : 409, r);
     }
     case 'expose': { const r = await expose.expose(+b.port, b.addr || null, snapshot); if (r.ok) settings.update({ exposeDeny: (settings.get().exposeDeny || []).filter(x => x !== +b.port) }); setTimeout(tick, 400); setTimeout(tick, 1500); return json(res, r.ok ? 200 : 400, r); }
-    case 'unexpose': { const r = await expose.unexpose(b.pid ? +b.pid : null, b.port ? +b.port : null); if (Number.isInteger(b.deny) && b.deny > 0 && b.deny < 65536) settings.update({ exposeDeny: [...new Set([...(settings.get().exposeDeny || []), b.deny])] }); setTimeout(tick, 400); return json(res, 200, r); }
+    case 'unexpose': { if (b.pid != null && !snapshot.exposures.some(e => e.pid === +b.pid)) return json(res, 403, { error: 'not a forward the dashboard lists' }); const r = await expose.unexpose(b.pid != null ? +b.pid : null, b.port ? +b.port : null); if (Number.isInteger(b.deny) && b.deny > 0 && b.deny < 65536) settings.update({ exposeDeny: [...new Set([...(settings.get().exposeDeny || []), b.deny])] }); setTimeout(tick, 400); return json(res, 200, r); }
     case 'expose-rebuild': {
-      for (const e of snapshot.exposures) await expose.unexpose(e.pid);
+      for (const e of snapshot.exposures.filter(e => expose.ours(e, null))) await expose.unexpose(e.pid);
       await new Promise(r => setTimeout(r, 700)); snapshot = await rt.snapshot(projects);
       await expose.reconcile(snapshot, settings.get().autoExpose, settings.get().exposeDeny); setTimeout(tick, 600); return json(res, 200, { ok: true, count: snapshot.exposures.length });
     }
     case 'recover': { // after suspend/resume: refresh tailscale info, rebuild forwards, force state push
       TS_INFO = null; TS_IP = null; const ts = await run('tailscale', ['status', '--json'], { timeout: 5000 });
-      for (const e of snapshot.exposures) await expose.unexpose(e.pid);
+      for (const e of snapshot.exposures.filter(e => expose.ours(e, null))) await expose.unexpose(e.pid);
       await new Promise(r => setTimeout(r, 700)); await tick(); LAST_RESUME = null; pushState(true);
       return json(res, 200, { ok: true, tailscale: ts.ok ? 'ok' : (ts.stderr || 'unreachable').trim(), exposures: snapshot.exposures.length });
     }

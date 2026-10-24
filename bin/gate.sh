@@ -70,6 +70,8 @@ post403 -H "Sec-Fetch-Site: same-site" && ok "POST with Sec-Fetch-Site same-site
 post403 -H "Origin: https://evil.example" && ok "POST from a foreign Origin -> 403" || fail "foreign Origin POST not blocked"
 r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -H "Origin: http://127.0.0.1:$PORT" -H 'Sec-Fetch-Site: same-origin' -d '{"id":"nope"}' "$B/api/worktree-prune")"
 [ "$r" = 404 ] && ok "same-origin POST passes the guard (404 unknown project)" || fail "same-origin POST -> $r"
+for ep in kill unexpose; do r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -H "Origin: $B" -d '{"pid":1}' "$B/api/$ep")"
+  [ "$r" = 403 ] && ok "POST $ep of an unlisted pid -> 403" || fail "POST $ep of an unlisted pid -> $r"; done
 r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X OPTIONS -H "Origin: http://127.0.0.1:7681" -H 'Sec-Fetch-Site: same-site' "$B/api/paste-image")"
 [ "$r" = 204 ] && ok "terminal (:7681) preflight to paste-image still allowed" || fail "paste-image from :7681 -> $r"
 
