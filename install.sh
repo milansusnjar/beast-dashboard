@@ -25,10 +25,16 @@ NODE_DIR="$(dirname "$NODE")"
 REPO="$(pwd)"
 command -v tmux >/dev/null || { echo "tmux is required (sudo apt install tmux)"; exit 1; }
 
+TTYD_BIND=""
+if ! { command -v ufw >/dev/null && sudo ufw status 2>/dev/null | grep -q '^Status: active'; }; then
+  TTYD_BIND=" -i lo"
+  log "no active ufw — the web terminal (ttyd, no login of its own) listens on localhost only; reach it through bin/enable-https.sh (tailscale serve) or an SSH tunnel"
+fi
+
 log "systemd user services (node: $NODE, repo: $REPO)"
 mkdir -p ~/.config/systemd/user
 for u in beast-dash beast-term beast-whisper; do   # beast-whisper: on demand, started by beast-dash, not enabled at boot
-  sed -e "s#__NODE_DIR__#$NODE_DIR#g" -e "s#__REPO__#$REPO#g" "$u.service" > ~/.config/systemd/user/"$u.service"
+  sed -e "s#__NODE_DIR__#$NODE_DIR#g" -e "s#__REPO__#$REPO#g" -e "s#__TTYD_BIND__#$TTYD_BIND#g" "$u.service" > ~/.config/systemd/user/"$u.service"
 done
 systemctl --user daemon-reload
 systemctl --user enable beast-dash.service >/dev/null

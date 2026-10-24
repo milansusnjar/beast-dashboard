@@ -125,6 +125,8 @@ kbd { font-family: var(--mono); font-size: 10.5px; border: 1px solid var(--line2
 .mobi { display: none !important; }
 .mdot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); }
 .mdot.on { background: var(--green); } .mdot.off { background: var(--red); }
+body.offline #hostline { color: var(--amber); }
+body.offline #main, body.offline #tasks { opacity: .6; transition: opacity .3s; }
 
 /* phone tab bar */
 .tabbar { display: none; }
@@ -480,6 +482,9 @@ input[type=checkbox] { accent-color: var(--accent); }
 .limcol .v { font-size: 22px; } .limcol .v small { font-size: 12px; }
 .limcol.warn .v { color: var(--amber); } .limcol.hot .v { color: var(--red); }
 .limcol .lim { margin-top: 5px; }
+.limrow .lrs, .limcol .lrs { display: none; color: var(--dim); font-size: 11px; } .limrow .lrs { grid-column: 2 / -1; margin-top: -3px; }
+.limcol.stale .v, .limcol.stale .lim { opacity: .55; }
+.limstale { margin-top: 3px; font-size: 11.5px; color: var(--amber); }
 .limchip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .limchip .warn { color: var(--amber); } .limchip .hot { color: var(--red); font-weight: 600; }
 
 /* heavy processes */
@@ -986,6 +991,7 @@ body.term-open { overflow: hidden; }
 .cscroll > * { max-width: 880px; margin-left: auto; margin-right: auto; }
 .cscroll .cbar { margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
 .cbar .btn.on { color: var(--text); background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.coff { color: var(--amber); font-size: 11.5px; }
 .conv { display: flex; flex-direction: column; gap: 20px; padding-bottom: 8px; }
 .conv.focus .trow, .conv.focus .tgroup, .conv.focus .ttodo { display: none; }
 .conv.focus .turn.assistant:not(:has(> .ttext, > .tqa)) { display: none; }
@@ -1193,7 +1199,7 @@ body.recording .ckeys > :not(.mic) { pointer-events: none; opacity: .4; }
   .tile[data-k="claude"] .v, .tile[data-k="limits"] .v { font-size: 22px; }
   .limcols { grid-template-columns: 1fr 1fr; gap: 0 12px; } .limcols .limcol + .limcol { padding-left: 12px; }
   .limcol .k .mono { display: none; }
-  .limrow { grid-template-columns: 38px 1fr 34px; } .limrow .lr { display: none; }
+  .limrow { grid-template-columns: 38px 1fr 34px; } .limrow .lr { display: none; } .limrow .lrs, .limcol .lrs { display: block; }
   .feat-home { grid-template-columns: 1fr; gap: 10px; }
   .sj-who { width: 120px; }
   .rc-body { padding-left: 16px; } .rc-m { display: none; } .rc-row { padding: 12px 14px; gap: 12px; } .rc-head { flex-wrap: wrap; }
@@ -1310,8 +1316,7 @@ body.term-open .rail .navb.on .ico { color: inherit; opacity: .85; }
 .tile[data-k="disk"] .v { white-space: normal; }
 .tstitle.run { display: inline-flex; padding: 0; background: none; border-radius: 0; font-size: 17px; flex-wrap: nowrap; }   /* not the .run rows of project cards */
 @media (max-width: 900px) { .tstitle.run { font-size: 16px; } }
-/* desktop: the agents live in the rail, so Home doesn't repeat them (scheduled messages stay); the phone keeps the list */
-#termstrip .tshead, #termstrip .agents, #termstrip .tsempty { display: none; } #termstrip:not(:has(.sched)) { display: none; }
+#termstrip:not(:has(.sched)) { display: none; }
 .turn.assistant.cmenu { border: 1px solid color-mix(in srgb, var(--signal) 45%, transparent); border-radius: 12px; padding: 10px 12px; gap: 8px; }
 .turn.assistant.cmenu .who { color: var(--signal); }
 .cmenu-q { white-space: pre-wrap; font-size: 13px; line-height: 1.45; color: var(--text); max-height: 40vh; overflow: auto; }

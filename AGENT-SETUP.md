@@ -78,7 +78,9 @@ cd ~/beast-dash
 
 1. writes `~/.config/systemd/user/beast-{dash,term}.service`, substituting the real node dir and the
    real repo path into the shipped unit templates;
-2. enables and starts both services (the terminal one only if `ttyd` is installed);
+2. enables and starts both services (the terminal one only if `ttyd` is installed); without an active
+   ufw the terminal is bound to localhost only (`ttyd -i lo`) — then reach it through `bin/enable-https.sh`
+   (tailscale serve) or an SSH tunnel;
 3. registers the Claude Code hooks (`node bin/install-hooks.js`);
 4. `sudo loginctl enable-linger $USER` — **needed**, or the services die when the user logs out;
 5. adds the ufw rule if both `tailscale` and `ufw` are present, and skips it with a message if not;

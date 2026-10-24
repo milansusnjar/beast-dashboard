@@ -4,7 +4,7 @@ const zlib = require('zlib');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const { run } = require('./lib/util');
+const { run, readBody, corrupted } = require('./lib/util');
 const settings = require('./lib/settings');
 const discovery = require('./lib/discovery');
 const git = require('./lib/gitinfo');
@@ -17,6 +17,7 @@ const { detachHelpers } = require('./lib/detach');
 hogs.setResolver(cwd => { const id = rt.attributeTo(projects, cwd); return id ? projects.find(p => p.id === id) : null; });
 const expose = require('./lib/expose');
 const actions = require('./lib/actions');
+const SAFE_NAME = /^[\w.-]+$/;
 const claude = require('./lib/claude');
 const files = require('./lib/files');
 const transcript = require('./lib/transcript');
@@ -52,7 +53,7 @@ let lastStateJson = '';
 
 function stateObj() {
   const s = settings.get();
-  return { projects: projects.map(p => ({ ...p, git: gitStatus[p.id] || null })), runtime: { ...snapshot, manual: expose.manual() }, settings: s, host: { tsIp: TS_IP, tsName: expose.tailscaleName(), tailscale: TS_INFO, publicHost: s.publicHost || TS_IP || 'localhost', terminalPort: 7681, hostname: require('os').hostname(), devRoot: s.devRoot, user: process.env.USER || 'user', lastResume: LAST_RESUME, startedAt: STARTED_AT, build: build(), pushSubs: push.subscriptions().length, probe: probe.status() }, claude: { restorable: claude.restorable(), usage: usage.summary(), limits: limits.all(), installed: CLAUDE_VERSION, schedule: schedule.all(), tasks: tasks.all() }, health: health.all(), crashes: recentCrashes(), stats: sys.latest(), statsHistory: sys.history() };
+  return { projects: projects.map(p => ({ ...p, git: gitStatus[p.id] || null })), runtime: { ...snapshot, manual: expose.manual() }, settings: s, host: { tsIp: TS_IP, tsName: expose.tailscaleName(), tailscale: TS_INFO, publicHost: s.publicHost || TS_IP || 'localhost', terminalPort: 7681, hostname: require('os').hostname(), devRoot: s.devRoot, user: process.env.USER || 'user', lastResume: LAST_RESUME, startedAt: STARTED_AT, build: build(), pushSubs: push.subscriptions().length, probe: probe.status(), stateErrors: corrupted() }, claude: { restorable: claude.restorable(), usage: usage.summary(), limits: limits.all(), installed: CLAUDE_VERSION, schedule: schedule.all(), tasks: tasks.all() }, health: health.all(), crashes: recentCrashes(), stats: sys.latest(), statsHistory: sys.history() };
 }
 let TS_IP = null, TS_INFO = null, LAST_RESUME = null, LAST_TICK = Date.now();
 // front-end build id = newest mtime of public/*: a client that sees it change reloads itself, so a PWA that sat open
@@ -135,7 +136,7 @@ async function tickBody() {
     LAST_TICK = now;
     TS_IP = await expose.tailscaleIp(); TS_INFO = await expose.tailscaleInfo();
     let snap = await rt.snapshot(projects);
-    if (!TEST && await expose.reconcile(snap, settings.get().autoExpose)) snap = { ...snap, exposures: await rt.exposures() };
+    if (!TEST && await expose.reconcile(snap, settings.get().autoExpose, settings.get().exposeDeny)) snap = { ...snap, exposures: await rt.exposures() };
     await decorateClaude(snap);
     snapshot = snap;
     await probeHealth();
@@ -190,13 +191,17 @@ async function runSchedule() {
   if (done.length) setTimeout(tick, 200);
 }
 // Weekly digest (Monday 09:00 local): sessions, cost per account, commits by you across all repos in the last 7 days.
+async function myCommits(start, end) {
+  const me = await recap.author(); let commits = 0, projectsTouched = 0;
+  for (const p of projects.filter(x => x.isGit)) { const r = await run('git', ['-C', p.path, 'log', `--since=${new Date(start).toISOString()}`, `--until=${new Date(end).toISOString()}`, '--author=' + me, '--no-merges', '--oneline'], { timeout: 8000 }); const n = r.stdout.split('\n').filter(Boolean).length; if (n) { commits += n; projectsTouched++; } }
+  return { commits, projectsTouched };
+}
 let lastDigestDay = settings.get().lastDigestDay || '';
 async function weeklyDigest() {
   const d = new Date(); if (d.getDay() !== 1 || d.getHours() < 9) return;
-  const day = d.toISOString().slice(0, 10); if (lastDigestDay === day) return; lastDigestDay = day; settings.update({ lastDigestDay: day });
+  const day = recap.dayWindow(0).key; if (lastDigestDay === day) return; lastDigestDay = day; settings.update({ lastDigestDay: day });
   if (!(settings.get().notify || {}).digest) return;
-  const u = usage.summary(); let commits = 0, projectsTouched = 0;
-  for (const p of projects.filter(x => x.isGit)) { const r = await run('git', ['-C', p.path, 'log', '--since=7 days ago', '--author=' + (process.env.USER || ''), '--oneline'], { timeout: 8000 }); const n = r.stdout.split('\n').filter(Boolean).length; if (n) { commits += n; projectsTouched++; } }
+  const u = usage.summary(); const { commits, projectsTouched } = await myCommits(recap.dayWindow(7).start, Date.now());
   const sessions = Object.values(claude.all()).filter(r => Date.now() - (r.lastEventAt || 0) < 7 * 86400e3).length;
   push.notify({ title: '📊 Beast weekly', body: `${sessions} Claude sessions · $${u.total.week.toFixed(0)} API-equiv (personal $${u.personal.week.toFixed(0)}, company $${u.company.week.toFixed(0)}) · ${commits} commits in ${projectsTouched} repos`, url: '/', tag: 'digest' }).catch(() => {});
 }
@@ -204,19 +209,18 @@ async function weeklyDigest() {
 let lastDailyDay = settings.get().lastDailyDay || '';
 async function dailySummary() {
   const d = new Date(); if (d.getHours() < 8) return;
-  const day = d.toISOString().slice(0, 10); if (lastDailyDay === day) return; lastDailyDay = day; settings.update({ lastDailyDay: day });
+  const day = recap.dayWindow(0).key; if (lastDailyDay === day) return; lastDailyDay = day; settings.update({ lastDailyDay: day });
   const n = settings.get().notify || {}; if (n.daily === false) return;
   const tk = tasks.all(); const review = tk.filter(t => t.status !== 'done' && t.result).length, open = tk.filter(t => t.status !== 'done').length;
   const need = snapshot.sessions.filter(s => s.claude && s.claude.needsYou).length;
-  const u = usage.summary(); let commits = 0;
-  for (const p of projects.filter(x => x.isGit)) { const r = await run('git', ['-C', p.path, 'log', '--since=yesterday', '--author=' + (process.env.USER || ''), '--oneline'], { timeout: 8000 }); commits += r.stdout.split('\n').filter(Boolean).length; }
+  const y = recap.dayWindow(1); const u = usage.summary(); const { commits } = await myCommits(y.start, y.end);
   const parts = []; if (review) parts.push(`${review} task${review > 1 ? 's' : ''} to review`); if (open) parts.push(`${open} open`); if (need) parts.push(`${need} session${need > 1 ? 's' : ''} need you`); parts.push(`yesterday $${u.total.yesterday.toFixed(0)} · ${commits} commits`);
   push.notify({ title: '☀️ Good morning', body: parts.join(' · ').slice(0, 120), url: review || open ? '/?view=tasks' : '/', tag: 'daily' }).catch(() => {});
 }
 // Nightly backup of the dashboard's own state (sessions, labels, push subscriptions, settings, schedule): state-backups/, keep 7.
 let lastBackupDay = '';
 function backupState() {
-  const day = new Date().toISOString().slice(0, 10); if (lastBackupDay === day) return; lastBackupDay = day;
+  const day = recap.dayWindow(0).key; if (lastBackupDay === day) return; lastBackupDay = day;
   const dir = path.join(__dirname, 'state-backups'); fs.mkdirSync(dir, { recursive: true });
   const out = path.join(dir, `state-${day}.tar.gz`); if (fs.existsSync(out)) return;
   run('tar', ['-czf', out, '-C', path.join(__dirname, 'state'), '--exclude=logs', '--exclude=usage-cache.json', '.'], { timeout: 60000 }).then(r => {
@@ -271,7 +275,7 @@ function oneLine(t, n = 80) {
   return t.length > n ? t.slice(0, n - 1) + '…' : t;
 }
 // State transitions worth a phone buzz: Claude finished / needs permission / hit an error. At most one per session per 30 s.
-const lastPush = new Map();
+const pushGate = require('./lib/pushgate').createPushGate();
 // Should this event buzz? Respects the per-event toggles, quiet hours and muted sessions from settings.
 function pushAllowed(kind, tmux) {
   const n = settings.get().notify || {}; if (n[kind] === false) return false;
@@ -285,7 +289,7 @@ claude.onChange((ev, r, prev) => {
   if (!['needs-you', 'permission', 'error', 'limit'].includes(r.state)) return;
   if (r.state === 'needs-you' && prev.state !== 'working' && prev.state !== 'background') return;
   const kind = r.state === 'needs-you' ? 'done' : r.state;
-  const now = Date.now(); if (now - (lastPush.get(r.tmux) || 0) < 30000) return; lastPush.set(r.tmux, now);
+  const now = Date.now();
   // One glance: "<project> · done" and ONE short line saying what the task was. No markdown dumps.
   // Quick turns (under 20 s) don't buzz the phone — the ding in the open dashboard is enough for those.
   const proj = r.label || r.tmux.replace(/^claude-/, '').replace(/-company$/, '').replace(/-\d+$/, '').replace(/-wt-.*$/, '');
@@ -298,7 +302,7 @@ claude.onChange((ev, r, prev) => {
     : r.state === 'error' ? oneLine(r.lastMessage || 'API error', 80)
     : oneLine(r.title || r.lastPrompt || r.lastMessage || 'finished', 80);
   const skipQuick = r.state === 'needs-you' && turn != null && turn < 20000;
-  if (!skipQuick && pushAllowed(kind, r.tmux)) push.notify({ title, body, url: `/?term=${encodeURIComponent(r.tmux)}&mode=chat`, tag: r.tmux, session: r.tmux, kind }).then(res => { if (res.sent) console.log(`push: ${title} -> ${res.sent}`); });
+  if (!skipQuick && !pushGate.blocked(r.tmux, kind, now) && pushAllowed(kind, r.tmux)) { pushGate.sent(r.tmux, kind, now); push.notify({ title, body, url: `/?term=${encodeURIComponent(r.tmux)}&mode=chat`, tag: r.tmux, session: r.tmux, kind, since: r.since }).then(res => { if (res.sent) console.log(`push: ${title} -> ${res.sent}`); }); }
   broadcast('ding', { tmux: r.tmux, state: r.state, title });
   setTimeout(tick, 150);
 });
@@ -415,7 +419,7 @@ function sendStatic(req, res, fp, url) {
   if (!c || c.etag !== etag) { c = { etag, gz: zlib.gzipSync(raw, { level: 9 }) }; staticGz.set(fp, c); }
   res.writeHead(200, { ...headers, 'content-encoding': 'gzip', vary: 'accept-encoding', 'content-length': c.gz.length }); res.end(c.gz);
 }
-function body(req, max = 1e6) { return new Promise((resolve, reject) => { let d = ''; req.on('data', c => { d += c; if (d.length > max) req.destroy(); }); req.on('end', () => { try { resolve(d ? JSON.parse(d) : {}); } catch (e) { reject(e); } }); }); }
+const body = readBody;
 function sse(res) { res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive', 'x-accel-buffering': 'no' }); res.write(': hi\n\n'); }
 const proj = id => projects.find(p => p.id === id);
 const shqPrompt = s => `'${String(s).replace(/'/g, `'\\''`)}'`;
@@ -444,12 +448,12 @@ async function api(req, res, url) {
     res.write(`event: state\ndata: ${JSON.stringify({ ...base, seq: baseSeq })}\n\n`);
     res.write(`event: history\ndata: ${JSON.stringify(sys.history())}\n\n`);
     if (sys.latest()) res.write(`event: stats\ndata: ${JSON.stringify(sys.latest())}\n\n`);
-    const ka = setInterval(() => res.write(': ka\n\n'), 20000);
+    const ka = setInterval(() => res.write('event: ping\ndata: 1\n\n'), 20000);
     req.on('close', () => { clients.delete(res); clearInterval(ka); setPace(); });
     return;
   }
   if (m === 'GET' && parts[0] === 'logs' && parts[1]) {
-    const name = decodeURIComponent(parts[1]);
+    const name = decodeURIComponent(parts[1]); if (!SAFE_NAME.test(name)) return json(res, 400, { error: 'bad name' });
     if (parts[2] === 'stream') {
       sse(res);
       const f = actions.logFile(name);
@@ -486,6 +490,7 @@ async function api(req, res, url) {
     send('(this process writes to a socket/pipe the dashboard cannot read — start it from the dashboard or as a systemd unit to get logs here)\n'); res.write('event: end\ndata: {}\n\n'); return;
   }
   if (m === 'GET' && parts[0] === 'docker' && parts[1] === 'logs' && parts[2]) {
+    if (!actions.SAFE_CONTAINER.test(parts[2])) return json(res, 400, { error: 'bad container id' });
     sse(res);
     const child = spawn('docker', ['logs', '-f', '--tail', '300', parts[2]]);
     const send = d => res.write(`event: log\ndata: ${JSON.stringify(d.toString('utf8'))}\n\n`);
@@ -536,8 +541,8 @@ async function api(req, res, url) {
   }
   if (m === 'GET' && parts[0] === 'zip' && parts[1]) { // several files / folders as one zip (?path=a&path=b)
     const p = fsRoot(parts[1]); if (!p) return json(res, 404, { error: 'no project' });
-    const ps = url.searchParams.getAll('path'); const d = new Date();
-    return files.zip(p.path, ps, res, ps.length === 1 ? path.basename(ps[0]) + '.zip' : `${p.name || p.id}-${d.toISOString().slice(0, 10)}-${ps.length}-items.zip`);
+    const ps = url.searchParams.getAll('path');
+    return files.zip(p.path, ps, res, ps.length === 1 ? path.basename(ps[0]) + '.zip' : `${p.name || p.id}-${recap.dayWindow(0).key}-${ps.length}-items.zip`);
   }
   if (m === 'GET' && parts[0] === 'file' && !parts[1] && url.searchParams.get('p')) { // an uploaded attachment (only from <devRoot>/.pasted)
     const base = pastedDir(); const fp = path.resolve(url.searchParams.get('p'));
@@ -767,6 +772,7 @@ async function api(req, res, url) {
       const r = await claude.send(b.session, b.text.slice(0, 4000), b.enter !== false); setTimeout(tick, 400); return json(res, r.ok ? 200 : 400, r);
     }
     case 'choose': { const r = await claude.choose(String(b.session || ''), b.index, b.label); setTimeout(tick, 400); return json(res, r.ok ? 200 : 409, r); }
+    case 'answer': { const r = await claude.answer(String(b.session || ''), Number.isFinite(b.since) ? b.since : null, b.choice); setTimeout(tick, 400); return json(res, r.ok ? 200 : r.status || 409, r); }
     case 'key': { const r = await claude.key(String(b.session || ''), String(b.key || '')); setTimeout(tick, 400); return json(res, r.ok ? 200 : 400, r); }
     case 'push-subscribe': { const r = push.subscribe(b.subscription, b.label); pushState(true); return json(res, r.ok ? 200 : 400, r); }
     case 'push-unsubscribe': { const r = push.unsubscribe(b.endpoint); pushState(true); return json(res, 200, r); }
@@ -776,18 +782,18 @@ async function api(req, res, url) {
       const p = proj(rec.project); if (!p) return json(res, 404, { error: 'no project' });
       await actions.stop(b.session); const r = await actions.start(p, rec.name, rec.cmd); setTimeout(tick, 800); return json(res, 200, r);
     }
-    case 'kill': { const r = await actions.kill(+b.pid, !!b.force); setTimeout(tick, 300); return json(res, 200, r); }
+    case 'kill': { if (!snapshot.external.some(x => String(x.pid) === String(b.pid))) return json(res, 403, { error: 'not a process the dashboard lists' }); const r = await actions.kill(+b.pid, !!b.force); setTimeout(tick, 300); return json(res, 200, r); }
     case 'docker': { const r = await actions.docker(b.id, b.action); setTimeout(tick, 500); return json(res, r.ok ? 200 : 500, r); }
     case 'git': {
       const p = proj(b.id); if (!p) return json(res, 404, { error: 'no project' });
       const r = await actions.gitAction(p, b.action, b.action === 'commit' ? b.message : b.action === 'revert-file' ? b.file : b.branch); await refreshGitOne(p.id); pushState(true); return json(res, r.ok ? 200 : 409, r);
     }
-    case 'expose': { const r = await expose.expose(+b.port, b.addr || null, snapshot); setTimeout(tick, 400); setTimeout(tick, 1500); return json(res, r.ok ? 200 : 400, r); }
-    case 'unexpose': { const r = await expose.unexpose(b.pid ? +b.pid : null, b.port ? +b.port : null); setTimeout(tick, 400); return json(res, 200, r); }
+    case 'expose': { const r = await expose.expose(+b.port, b.addr || null, snapshot); if (r.ok) settings.update({ exposeDeny: (settings.get().exposeDeny || []).filter(x => x !== +b.port) }); setTimeout(tick, 400); setTimeout(tick, 1500); return json(res, r.ok ? 200 : 400, r); }
+    case 'unexpose': { const r = await expose.unexpose(b.pid ? +b.pid : null, b.port ? +b.port : null); if (Number.isInteger(b.deny) && b.deny > 0 && b.deny < 65536) settings.update({ exposeDeny: [...new Set([...(settings.get().exposeDeny || []), b.deny])] }); setTimeout(tick, 400); return json(res, 200, r); }
     case 'expose-rebuild': {
       for (const e of snapshot.exposures) await expose.unexpose(e.pid);
       await new Promise(r => setTimeout(r, 700)); snapshot = await rt.snapshot(projects);
-      await expose.reconcile(snapshot, true); setTimeout(tick, 600); return json(res, 200, { ok: true, count: snapshot.exposures.length });
+      await expose.reconcile(snapshot, settings.get().autoExpose, settings.get().exposeDeny); setTimeout(tick, 600); return json(res, 200, { ok: true, count: snapshot.exposures.length });
     }
     case 'recover': { // after suspend/resume: refresh tailscale info, rebuild forwards, force state push
       TS_INFO = null; TS_IP = null; const ts = await run('tailscale', ['status', '--json'], { timeout: 5000 });
@@ -816,7 +822,9 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname.startsWith('/api/')) return await api(req, res, url);
     // nobody frames the dashboard: a hidden iframe on another site would turn clicks into taps on the emulator, merges … (clickjacking).
     // Test copies (BD_TEST) stay frameable — the screenshot kit wraps them in an iframe.
-    if (!TEST || process.env.BD_BIND) { res.setHeader('x-frame-options', 'DENY'); res.setHeader('content-security-policy', "frame-ancestors 'none'"); }
+    const csp = ["script-src 'self'", "object-src 'none'", "base-uri 'self'"];
+    if (!TEST || process.env.BD_BIND) { res.setHeader('x-frame-options', 'DENY'); csp.push("frame-ancestors 'none'"); }
+    res.setHeader('content-security-policy', csp.join('; '));
     let f = url.pathname === '/' ? '/index.html' : url.pathname;
     f = path.normalize(f).replace(/^(\.\.[\/\\])+/, '');
     const fp = path.join(PUBLIC, f);
@@ -826,7 +834,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { 'content-type': MIME['.html'], 'cache-control': 'no-cache, no-store' }, html, 6);
     }
     return sendStatic(req, res, fp, url);
-  } catch (e) { console.error(e); if (!res.headersSent) json(res, 500, { error: String(e.message || e) }); else try { res.end(); } catch {} }
+  } catch (e) { console.error(e); if (!res.headersSent) json(res, e.status || 500, { error: String(e.message || e) }); else try { res.end(); } catch {} }
 });
 
 (async () => {

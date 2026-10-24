@@ -18,12 +18,12 @@ set -euo pipefail
 name="$(tailscale status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')"
 if [ "${1:-}" = "off" ]; then sudo tailscale serve reset; echo "serve config removed"; exit 0; fi
 echo "==> checking HTTPS certificates for $name"
-if ! sudo tailscale cert --cert-file /tmp/bd-cert-test.crt --key-file /tmp/bd-cert-test.key "$name" >/dev/null 2>&1; then
+certdir="$(mktemp -d)"; trap 'sudo rm -rf "$certdir"' EXIT
+if ! sudo tailscale cert --cert-file "$certdir/test.crt" --key-file "$certdir/test.key" "$name" >/dev/null 2>&1; then
   echo "HTTPS certificates are not enabled for this tailnet."
   echo "Enable them once at https://login.tailscale.com/admin/dns (HTTPS Certificates -> Enable HTTPS), then re-run."
   exit 1
 fi
-sudo rm -f /tmp/bd-cert-test.crt /tmp/bd-cert-test.key
 echo "==> tailscale serve: / -> dashboard, /term -> terminal"
 # serve strips the mount path and prepends the target's path, and routes by Host header (the MagicDNS name)
 sudo tailscale serve --bg --https=443 --set-path / http://127.0.0.1:8787 >/dev/null

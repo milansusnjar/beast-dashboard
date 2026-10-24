@@ -14,8 +14,11 @@ LIVE="$(node -e 'try{console.log(JSON.parse(require("fs").readFileSync(process.a
 FAIL=0; fail() { echo "FAIL  $*"; FAIL=1; }; ok() { echo "ok    $*"; }
 
 echo "== syntax"
-while IFS= read -r f; do node --check "$f" 2>/tmp/gate-$$.err || { fail "node --check $f"; sed 's/^/      /' /tmp/gate-$$.err | head -5; }; done < <(cd "$REPO" && find server.js lib public bin -name '*.js' -not -path '*/node_modules/*' | sed "s#^#$REPO/#")
+while IFS= read -r f; do node --check "$f" 2>/tmp/gate-$$.err || { fail "node --check $f"; sed 's/^/      /' /tmp/gate-$$.err | head -5; }; done < <(cd "$REPO" && find server.js lib public bin test -name '*.js' -not -path '*/node_modules/*' | sed "s#^#$REPO/#")
 [ $FAIL = 0 ] && ok "node --check"
+
+echo "== unit tests"
+if (cd "$REPO" && node --test test/*.test.js > /tmp/gate-$$.unit 2>&1); then ok "node --test ($(grep -c '^✔' /tmp/gate-$$.unit) passed)"; else fail "node --test"; grep -E '^✖|Error|expected|actual' /tmp/gate-$$.unit | head -20 | sed 's/^/      /'; fi
 
 echo "== boot isolated copy on 127.0.0.1:$PORT"
 TMP="$(mktemp -d /tmp/bd-gate-XXXX)"

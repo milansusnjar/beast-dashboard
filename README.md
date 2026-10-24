@@ -215,7 +215,9 @@ from its own origin. Reach it by another DNS name (e.g. `devbox.local`, `devbox.
 `allowedHosts` in `state/settings.json` and restart (`systemctl --user restart beast-dash`).
 
 `-O` only stops browsers: the terminal port (7681) has no login of its own, so like the dashboard
-port it must never be reachable from outside your tailnet / LAN (keep the firewall closed).
+port it must never be reachable from outside your tailnet / LAN (keep the firewall closed). When `install.sh`
+finds no active ufw it binds the terminal to localhost only (`ttyd -i lo`); it is then reached through
+`bin/enable-https.sh` (tailscale serve) or an SSH tunnel.
 
 **Upgrading from 1.1.x:** `git pull && ./install.sh` (re-installs the units, so the terminal gets
 `-O`). If the page now says *forbidden (unknown Host)*, you open it by a name that isn't an IP,

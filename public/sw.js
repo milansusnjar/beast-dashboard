@@ -7,15 +7,17 @@ self.addEventListener('push', e => {
   const actions = d.kind === 'permission' ? [{ action: 'allow', title: '✓ Allow' }, { action: 'deny', title: '✕ Deny' }, { action: 'open', title: 'Open' }]
     : d.kind === 'done' ? [{ action: 'go', title: '👍 Yes, go on' }, { action: 'open', title: 'Open' }]
     : d.session ? [{ action: 'open', title: 'Open' }] : [];
-  e.waitUntil(self.registration.showNotification(d.title || 'Beast Dash', { body: d.body || '', tag: d.tag || 'beast', renotify: true, icon: '/icon-192.png', badge: '/icon-192.png', actions, data: { url: d.url || '/', session: d.session || null } }));
+  e.waitUntil(self.registration.showNotification(d.title || 'Beast Dash', { body: d.body || '', tag: d.tag || 'beast', renotify: true, icon: '/icon-192.png', badge: '/icon-192.png', actions, data: { url: d.url || '/', session: d.session || null, since: d.since ?? null } }));
 });
 const post = (path, body) => fetch('/api/' + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 self.addEventListener('notificationclick', e => {
   e.notification.close();
   const sess = e.notification.data?.session;
   if (sess && e.action && e.action !== 'open') {   // reply without opening the app
-    const p = e.action === 'allow' ? post('key', { session: sess, key: 'enter' }) : e.action === 'deny' ? post('key', { session: sess, key: 'esc' }) : post('send', { session: sess, text: 'Yes, go on.' });
-    e.waitUntil(p.catch(() => {})); return;
+    const since = e.notification.data?.since ?? null;
+    const p = e.action === 'allow' || e.action === 'deny' ? post('answer', { session: sess, since, choice: e.action }) : post('send', { session: sess, text: 'Yes, go on.' });
+    const failed = msg => self.registration.showNotification("Couldn't answer — open the app", { body: msg || '', tag: 'bd-answer-' + sess, icon: '/icon-192.png', badge: '/icon-192.png', data: { url: e.notification.data?.url || '/', session: sess } });
+    e.waitUntil(p.then(async r => { if (!r.ok) { let j = {}; try { j = await r.json(); } catch {} await failed(j.error); } }).catch(() => failed('no connection to the beast'))); return;
   }
   const url = new URL(e.notification.data?.url || '/', self.location.origin).href;
   // Also park the target in Cache Storage: iOS often resumes a frozen PWA *after* our postMessage was sent (or reloads it),

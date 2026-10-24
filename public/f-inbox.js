@@ -56,10 +56,11 @@
     ta.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); send(); } });
     const mic = voiceButton(ta, name);
     const sendBtn = h('button', { class: 'btn primary ibx-btn ibx-send', title: 'send (Enter)', onclick: send }, ico('send', 15), 'Send');
-    // permission prompts: same calls as the chat's y / n buttons (app.js: api('send', { session, text: 'y'|'n', enter: false }))
     const answer = async k => {
-      try { await api('send', { session: name, text: k, enter: false }); IBX.sent.set(name, claudeOf(name)?.state || ''); sentTag.classList.remove('hidden'); }
-      catch (e) { toast(e.message, 'err'); }
+      if (row.answered != null && row.answered === row.since) return;
+      row.answered = row.since; row.setPermDisabled(true);
+      try { await api('answer', { session: name, since: row.since, choice: k === 'y' ? 'allow' : 'deny' }); IBX.sent.set(name, claudeOf(name)?.state || ''); sentTag.classList.remove('hidden'); }
+      catch (e) { toast(e.message, 'err'); row.answered = null; row.setPermDisabled(false); }
     };
     const tellBtn = h('button', { class: 'btn ibx-btn', title: 'deny (Esc), then write Claude what to do instead', onclick: async () => {
       try { await api('key', { session: name, key: 'esc' }); } catch (e) { toast(e.message, 'err'); return; }
@@ -77,14 +78,15 @@
     const title = h('span', { class: 'ibx-proj' }), tag = h('span', { class: 'badge tag acc' }), av = h('span', { class: 'ibx-av' });
     const head = h('div', { class: 'ibx-head' }, av, h('div', { class: 'ibx-id' }, title, tag), h('span', { class: 'sp' }), badge);
     row.el = h('div', { class: 'ibx-row', 'data-name': name }, head, msg, more, permBtns, h('div', { class: 'ibx-reply' }, ta), h('div', { class: 'ibx-acts' }, mic, sentTag, h('span', { class: 'sp' }), seenBtn, chatBtn, sendBtn));
-    Object.assign(row, { ta, grow, badge, msg, more, title, tag, av, sentTag, pid: null, text: null, permBtns, ynBtns: [allowBtn, denyBtn, tellBtn], menu: '' });
+    Object.assign(row, { ta, grow, badge, msg, more, title, tag, av, sentTag, pid: null, text: null, permBtns, ynBtns: [allowBtn, denyBtn, tellBtn], menu: '', answered: null, setPermDisabled: d => { for (const b of row.permBtns.querySelectorAll('button')) b.disabled = d; } });
     return row;
   }
 
   // update a row in place: never touches the textarea
   function fill(row, it) {
     const cl = it.claude;
-    if (row.since !== cl.since) { row.since = cl.since; row.tell = false; }
+    if (row.since !== cl.since) { row.since = cl.since; row.tell = false; if (row.answered != null) row.answered = null; }
+    if (row.answered == null) row.setPermDisabled(false);
     row.el.className = 'ibx-row st-' + cl.state + (row.tell && cl.state === 'permission' ? ' ibx-tell' : ''); row.el.style.setProperty('--org', orgColor(it.org));
     if (row.pid !== it.pid) { row.pid = it.pid; row.av.replaceChildren(avatar(it.pid, 'sm')); }
     row.title.textContent = cl.label || it.project; row.title.title = it.name;
@@ -111,7 +113,7 @@
     const order = [];
     for (const it of items) { let row = IBX.rows.get(it.name); if (!row) { row = makeRow(it); IBX.rows.set(it.name, row); } fill(row, it); order.push(row.el); }
     // kept-but-gone rows (focused textarea) stay where they are, after the others
-    for (const [n, row] of IBX.rows) if (!names.has(n)) { row.el.classList.add('ibx-stale'); row.badge.replaceChildren(stateBadge(claudeOf(n))); order.push(row.el); }
+    for (const [n, row] of IBX.rows) if (!names.has(n)) { row.el.classList.add('ibx-stale'); row.el.classList.remove('st-permission'); row.setPermDisabled(true); row.badge.replaceChildren(stateBadge(claudeOf(n))); order.push(row.el); }
     const cur = [...IBX.list.children].filter(c => c.classList.contains('ibx-row'));
     if (cur.length !== order.length || order.some((e, i) => e !== cur[i])) IBX.list.replaceChildren(...order);
     for (const row of IBX.rows.values()) if (!row.grown && row.el.isConnected) { row.grown = true; row.grow(); }
