@@ -1098,6 +1098,8 @@ body.recording .ckeys > :not(.mic) { pointer-events: none; opacity: .4; }
 .creply { flex: 1; min-width: 0; height: 46px; min-height: 46px; max-height: 160px; resize: none; padding: 10px 14px; border: 1px solid var(--line2); border-radius: 16px; background: var(--panel); color: var(--text); font: inherit; font-family: var(--sans); font-size: 14px; line-height: 24px; outline: 0; overflow-y: auto; }
 .creply:focus { border-color: color-mix(in srgb, var(--accent) 60%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent); }
 .creply::placeholder { color: var(--dim); }
+.cdrop .cscroll { outline: 2px dashed color-mix(in srgb, var(--accent) 70%, transparent); outline-offset: -8px; border-radius: 14px; }
+.cdrop .creply { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
 .csend { flex: none; width: 46px; height: 46px; padding: 0; border-radius: 50%; justify-content: center; }
 .csend .ico { width: 19px; height: 19px; }
 .cqueue { flex: none; height: 46px; min-width: 46px; padding: 0 12px; border-radius: 16px; font-size: 18px; color: var(--indigo); background: color-mix(in srgb, var(--indigo) 12%, transparent); border-color: color-mix(in srgb, var(--indigo) 35%, transparent); justify-content: center; }

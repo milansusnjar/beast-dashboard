@@ -280,7 +280,8 @@ the right, Claude's on the left in the order it happened, tool calls folded into
 text (open one for the Edit / Write diff, the Bash command and output, an agent's answer — loaded
 only when opened), *worked 3m 12s* at the end of each turn, and while Claude works a live turn with what it is running and its
 own status line (`✻ Testing… 4m 08s · ↓ 7.5k tokens`) plus ■ Stop. *Files edited* links to the
-diffs. `Esc`, `^C`, `y`/`n` are one tap away. **Terminal** mode is the same session as the real
+diffs. Drop or paste files (or tap 📎) to attach them — they land in `~/dev/.pasted` and their paths go into
+your message. `Esc`, `^C`, `y`/`n` are one tap away. **Terminal** mode is the same session as the real
 Claude Code TUI; the switch is one per device.
 
 **Scheduling.** ⏰ on a session: send a prompt (or a chain of prompts — each waits for the previous

@@ -1083,9 +1083,19 @@ function renderConversation(box, name, t, o) {
   ta.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); send(); } else if (ev.key === 'Escape' && (busy || justSent)) { ev.preventDefault(); stop(); } });
   const sendBtn = h('button', { class: 'btn primary csend', title: 'send (Enter)', onclick: send }, ico('send', 16));
   // 📎 attach: any file (photo / screenshot downscaled, everything else as-is) -> <devRoot>/.pasted -> its path goes into the message (Claude reads it)
-  const fileIn = h('input', { type: 'file', style: 'display:none' });
-  fileIn.addEventListener('change', async () => { const f = fileIn.files[0]; fileIn.value = ''; if (!f) return; try { const p = await uploadFile(f); ta.value = (ta.value ? ta.value.replace(/\s*$/, ' ') : '') + p + ' '; grow(); ta.focus(); toast('attached — describe what to do with it and send', 'ok'); } catch (e) { toast('upload failed: ' + e.message, 'err'); } });
-  const attach = h('button', { class: 'btn sm ghost qk', title: 'attach a file — photo, screenshot, CSV, PDF, anything up to 100 MB', onclick: () => fileIn.click() }, ico('clip', 15));
+  const fileIn = h('input', { type: 'file', multiple: true, style: 'display:none' });
+  const attachFiles = async files => { files = [...files].filter(Boolean); if (!files.length) return;
+    for (const f of files) { if (files.length > 1 || f.size > 2e6) toast('uploading ' + (f.name || 'image') + '…'); try { const p = await uploadFile(f); ta.value = (ta.value ? ta.value.replace(/\s*$/, ' ') : '') + p + ' '; grow(); } catch (e) { toast('upload failed: ' + e.message, 'err'); } }
+    ta.focus(); toast(files.length > 1 ? `${files.length} files attached — describe what to do with them and send` : 'attached — describe what to do with it and send', 'ok'); };
+  fileIn.addEventListener('change', () => { const fs = [...fileIn.files]; fileIn.value = ''; attachFiles(fs); });
+  const hasFiles = ev => [...(ev.dataTransfer?.types || [])].includes('Files');
+  const dropZone = el => {
+    el.addEventListener('dragover', ev => { if (!hasFiles(ev)) return; ev.preventDefault(); ev.dataTransfer.dropEffect = 'copy'; box.classList.add('cdrop'); });
+    el.addEventListener('dragleave', ev => { if (!box.contains(ev.relatedTarget)) box.classList.remove('cdrop'); });
+    el.addEventListener('drop', ev => { if (!hasFiles(ev)) return; ev.preventDefault(); box.classList.remove('cdrop'); attachFiles(ev.dataTransfer.files); });
+  };
+  ta.addEventListener('paste', ev => { const dt = ev.clipboardData; if (!dt || dt.getData('text/plain')) return; const fs = [...(dt.files || [])]; if (fs.length) { ev.preventDefault(); attachFiles(fs); } });
+  const attach = h('button', { class: 'btn sm ghost qk', title: 'attach files — photo, screenshot, CSV, PDF, anything up to 100 MB (or drop / paste them here)', onclick: () => fileIn.click() }, ico('clip', 15));
   // 🎤 hold to talk (Web Speech API; Safari + Chrome): release sends
   const mic = voiceButton(ta, name);
   const clock = h('button', { class: 'btn sm ghost qk', title: 'schedule this message for later (or a chain of messages)', onclick: () => scheduleDialog(name, ta.value) }, ico('clock', 15));
@@ -1101,7 +1111,9 @@ function renderConversation(box, name, t, o) {
   const queue = async () => { const v = ta.value.trim(); if (!v) { toast('type the message first'); ta.focus(); return; } ta.value = ''; grow();
     try { await api('schedule', { session: name, at: Date.now(), prompts: [v], whenFree: true }); toast('queued — goes out when Claude is free', 'ok'); } catch (e) { ta.value = v; grow(); toast(e.message, 'err'); } };
   const queueBtn = busyNow ? h('button', { class: 'btn cqueue', title: 'send when Claude is free — queued, goes out by itself the moment this session finishes', onclick: queue }, '⏳') : null;
-  box.append(scroller, h('div', { class: 'cbox2' }, keys, h('div', { class: 'crow' }, ta, queueBtn, sendBtn)));
+  const composer = h('div', { class: 'cbox2' }, keys, h('div', { class: 'crow' }, ta, queueBtn, sendBtn));
+  dropZone(scroller); dropZone(composer); box.classList.remove('cdrop');
+  box.append(scroller, composer);
   grow(); scroller.scrollTop = atBottom ? scroller.scrollHeight : prevTop;
   if (hadFocus) ta.focus({ preventScroll: true });
   setTimeout(() => { if (atBottom) scroller.scrollTop = scroller.scrollHeight; }, 0);
