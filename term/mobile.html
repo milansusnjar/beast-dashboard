@@ -906,3 +906,13 @@
   }, true);
 })();
 </script>
+
+<script>
+(function () {
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' || !e.shiftKey || e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return;
+    if (!window.bd || !window.bd.sendText('\n')) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+  }, true);
+})();
+</script>

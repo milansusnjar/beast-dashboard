@@ -318,7 +318,7 @@ read-only and *Resume here*.
   History.
 - **Tasks** — your backlog, per project, with attachments that survive restarts.
 - **Terminals** — the terminal panel with a session list; `t`, `n` (next session that needs you),
-  `s` (new terminal), `1-9` switch. Inside a terminal: `Ctrl+Shift+←/→` switch, `Ctrl+Shift+↑` back.
+  `s` (new terminal), `1-9` switch. Inside a terminal: `Ctrl+Shift+←/→` switch, `Ctrl+Shift+↑` back, `Shift+Enter` new line in Claude Code's prompt.
 - **⌘K / Ctrl+K** — jump to any session or project, start Claude, run actions, search conversations.
 
 - **Tunnels** (⚙ → Tunnels) — loopback-only ports of running projects are forwarded onto the
