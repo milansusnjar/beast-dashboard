@@ -128,7 +128,7 @@
     }
 
     function head(extra) {
-      return h('div', { class: 'emu-head' }, h('h3', null, '📱 Android'), extra, h('span', { class: 'emu-sp' }),
+      return h('div', { class: 'emu-head' }, h('h3', null, ico('phone', 16), ' Android'), extra, h('span', { class: 'emu-sp' }),
         h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: () => close() }, ico('x', 15)));
     }
 
@@ -140,12 +140,12 @@
         if (shown === s) return; shown = s; img = null;
         const rows = (st.avds || []).map(a => {
           const run = (st.procs || []).some(p => p.avd === a) || (st.devices || []).some(d => d.avd === a) || (started[a] && Date.now() - started[a] < 90000);
-          return h('div', { class: 'emu-avd' }, h('span', { class: 'emu-avdn' }, '📱 ', h('b', null, a)),
+          return h('div', { class: 'emu-avd' }, h('span', { class: 'emu-avdn' }, ico('phone', 14), ' ', h('b', null, a)),
             h('button', { class: 'btn primary', disabled: run, onclick: async ev => {
               ev.currentTarget.disabled = true;
               try { const r = await api('emu-start', { avd: a }); started[a] = Date.now(); toast(r.out || 'Starting ' + a, 'ok'); shown = ''; draw(); load(true); }
               catch (e) { toast('Start failed: ' + e.message, 'err'); ev.currentTarget.disabled = false; }
-            } }, run ? 'Starting…' : '▶ Start'));
+            } }, run ? 'Starting…' : gl('▶ Start')));
         });
         body.replaceChildren(head(),
           (st.devices || []).length ? h('p', { class: 'dim emu-note' }, 'adb sees: ' + st.devices.map(d => d.serial + ' (' + d.state + ')').join(', ')) : null,
@@ -178,7 +178,7 @@
             d.kind === 'emulator' ? h('button', { class: 'btn emu-stop', onclick: async () => {
               if (!confirm('Stop the emulator ' + devName(d) + '? Unsaved state in apps is lost.')) return;
               try { await api('emu-stop', { serial: d.serial }); toast('Stopping ' + devName(d), 'ok'); shown = ''; setTimeout(() => load(true), 1500); } catch (e) { toast('Stop failed: ' + e.message, 'err'); }
-            } }, '■ Stop emulator') : null)));
+            } }, gl('■ Stop emulator')) : null)));
       frame();
     }
     function info(d) {

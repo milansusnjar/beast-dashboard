@@ -59,7 +59,7 @@
     const esc = e => { if (!owns()) return cleanup(); if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); if (st.agent) { st.agent = null; draw(); } else close(); } };
     const onOut = e => { if (e.target === m) close(); };
     document.addEventListener('keydown', esc, true);
-    const title = h('h3', null, '◇ Subagents');
+    const title = h('h3', null, gl('◇ Subagents'));
     const back = h('button', { class: 'btn sm ghost', onclick: () => { st.agent = null; draw(); } }, '← all');
     const body = h('div', { class: 'sa-body' });
     box = h('div', { class: 'box sa-box' }, h('div', { class: 'sa-head' }, back, title, h('span', { class: 'sa-sp' }), h('span', { class: 'dim mono sa-sess' }, name), h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: close }, ico('x', 15))), body);
@@ -68,7 +68,7 @@
 
     function drawList() {
       const ag = list || [];
-      title.textContent = '◇ Subagents' + (ag.length ? ' · ' + ag.length : '');
+      title.replaceChildren(...gl('◇ Subagents' + (ag.length ? ' · ' + ag.length : '')));
       if (list == null) return body.replaceChildren(h('div', { class: 'sa-empty dim' }, 'Loading…'));
       if (!ag.length) return body.replaceChildren(h('div', { class: 'sa-empty dim' }, 'No subagents in this session yet.'));
       const total = ag.reduce((s, a) => s + a.cost, 0);
@@ -76,11 +76,11 @@
         h('div', { class: 'sa-r1' }, h('span', { class: 'sa-type' }, a.type), modelBadge(a), a.running ? h('span', { class: 'sa-live' }, 'running') : null, a.background ? h('span', { class: 'sa-bg dim' }, 'bg') : null, h('span', { class: 'sa-sp' }), h('span', { class: 'mono sa-cost' }, money(a.cost))),
         h('div', { class: 'sa-desc' }, a.description || '(no description)'),
         h('div', { class: 'sa-r3 dim mono' }, agentDur(a), ' · ', a.tools + ' tool' + (a.tools === 1 ? '' : 's'), ' · ', tok(a.tokens.out) + ' out', ' · ', ago(a.startedAt) + ' ago'),
-        a.flag ? h('div', { class: 'sa-flag' }, '⚠ ' + a.flag) : null));
+        a.flag ? h('div', { class: 'sa-flag' }, gl('⚠ ' + a.flag, 12)) : null));
       body.replaceChildren(h('div', { class: 'sa-sum dim mono' }, ag.filter(a => a.running).length + ' running · ' + money(total) + ' API-equivalent'), ...rows);
     }
     function drawDetail() {
-      const a = st.agent; title.textContent = '◇ ' + a.type;
+      const a = st.agent; title.replaceChildren(...gl('◇ ' + a.type));
       const head = h('div', { class: 'sa-dh' }, modelBadge(a), a.running ? h('span', { class: 'sa-live' }, 'running') : null, h('span', { class: 'mono dim' }, agentDur(a) + ' · ' + money(a.cost) + ' · ' + a.tools + ' tools'), h('div', { class: 'sa-desc', style: 'flex-basis:100%' }, a.description || ''), a.flag ? h('div', { class: 'sa-flag', style: 'flex-basis:100%' }, '⚠ ' + a.flag) : null);
       if (!detail) return body.replaceChildren(head, h('div', { class: 'sa-empty dim' }, 'Loading…'));
       if (detail.error) return body.replaceChildren(head, h('div', { class: 'sa-empty dim' }, detail.error));
@@ -181,7 +181,7 @@
           h('div', { class: 'sa-lbl', style: 'margin-top:10px' }, '7 days ', h('b', { class: 'mono' }, money(wTot))), stack(M.totals.byFamily, wTot, true), legend(M.totals.byFamily)),
         h('div', { class: 'sa-part' },
           lineChart(M.days))),
-      T.flagged.length ? h('div', { class: 'sa-fl' }, h('div', { class: 'sa-lbl' }, '⚠ Flagged today'), ...T.flagged.slice(0, 5).map(a => h('div', { class: 'sa-flrow' }, h('span', { class: 'sa-flag' }, a.flag), h('span', { class: 'dim sa-fld' }, (a.description || a.type) + ' · ' + a.session), h('b', { class: 'mono' }, money(a.cost))))) : null].filter(Boolean));
+      T.flagged.length ? h('div', { class: 'sa-fl' }, h('div', { class: 'sa-lbl' }, gl('⚠ Flagged today', 12)), ...T.flagged.slice(0, 5).map(a => h('div', { class: 'sa-flrow' }, h('span', { class: 'sa-flag' }, a.flag), h('span', { class: 'dim sa-fld' }, (a.description || a.type) + ' · ' + a.session), h('b', { class: 'mono' }, money(a.cost))))) : null].filter(Boolean));
   }
   function homeTiles() {
     if (!T.el) T.el = h('div', { class: 'tile sa-tile' });

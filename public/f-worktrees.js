@@ -46,7 +46,7 @@ FEAT.worktrees = (() => {
     const s = sum[p.id]; if (!s || !s.count) return null;
     const cls = 'wtx-chip' + (s.dirty ? ' dirty' : s.stale >= s.count ? ' stale' : '');
     const tip = `${plural(s.count, 'extra worktree')}${s.dirty ? ` · ${s.dirty} with uncommitted changes` : ''}${s.stale ? ` · ${s.stale} stale (merged, no session)` : ''}`;
-    return h('button', { class: cls, title: tip, onclick: () => openDrawer(p.id, KEY) }, h('span', { class: 'ico' }, '⎇'), String(s.count));
+    return h('button', { class: cls, title: tip, onclick: () => openDrawer(p.id, KEY) }, h('span', { class: 'ico' }, ico('branch', 13)), String(s.count));
   }
 
   async function getList(pid) {
@@ -76,7 +76,7 @@ FEAT.worktrees = (() => {
       const ws = d && d.worktrees || [];
       if (!ws.length) return [h('div', { class: 'dim' }, cache[p.id]?.err || 'No extra worktrees.')];
       return ws.map(w => h('div', { class: 'wtx-prow' },
-        h('div', { class: 'wtx-pt' }, h('span', { class: 'ico' }, '⎇'), h('b', null, w.branch || ('HEAD@' + w.head)),
+        h('div', { class: 'wtx-pt' }, h('span', { class: 'ico' }, ico('branch', 13)), h('b', null, w.branch || ('HEAD@' + w.head)),
           h('span', { class: 'wtx-sp' }),
           isDirty(w) ? h('span', { class: 'wtx-pb warn' }, 'uncommitted') : null,
           w.sessions.length ? h('span', { class: 'wtx-pb live' }, plural(w.sessions.length, 'session')) : null,
@@ -99,7 +99,7 @@ FEAT.worktrees = (() => {
     const chip = h('button', { class: 'wtx-chip' + (s.dirty ? ' dirty' : s.stale >= s.count ? ' stale' : ''),
       onclick: ev => { ev.stopPropagation(); pop.classList.contains('hidden') ? show() : hide(); },
       onmouseenter: () => { if (CAN_HOVER) show(); }, onmouseleave: () => { if (CAN_HOVER) later(); } },
-      h('span', { class: 'ico' }, '⎇'), plural(s.count, 'worktree'));
+      h('span', { class: 'ico' }, ico('branch', 13)), plural(s.count, 'worktree'));
     pop.onmouseenter = () => clearTimeout(hideT);
     pop.onmouseleave = () => { if (CAN_HOVER) later(); };
     return h('span', { class: 'wtx-pick' }, chip, pop);
@@ -151,14 +151,14 @@ FEAT.worktrees = (() => {
         try { const r = await post('worktree-prune', { id: p.id }); toast('Prune\n' + (r.out || 'done').split('\n').slice(-3).join('\n'), 'ok'); } catch (e) { toast('Prune failed: ' + e.message, 'err'); }
         refresh(true);
       } }, 'Prune', prunable ? h('span', { class: 'wtx-n' }, prunable) : null),
-      h('button', { class: 'btn sm', onclick: () => refresh(true) }, '↻ refresh'));
+      h('button', { class: 'btn sm', onclick: () => refresh(true) }, gl('↻ refresh')));
     root.replaceChildren(head, ...(ws.length ? ws.map(w => wcard(p, d, w, refresh)) : [h('div', { class: 'chclean' }, 'No extra worktrees in this repo.')]));
   }
 
   function wcard(p, d, w, refresh) {
     const stale = isStale(w);
     const st = stOf(p.id, w.path);
-    const diffBox = h('div', { class: 'chdiff wtx-diff hidden' });
+    const diffBox = h('div', { class: 'chdiff wtx-diff hidden', 'data-root': w.path });
     const panel = h('div', { class: 'wtx-panel hidden' });
     const run = async (label, fn) => {
       try { const r = await fn(); toast(label + (r?.out ? '\n' + r.out.split('\n').slice(-3).join('\n') : ''), 'ok'); }
@@ -176,7 +176,7 @@ FEAT.worktrees = (() => {
       w.locked ? h('span', { class: 'wtx-pill mute' }, '🔒 locked') : null,
       w.prunable ? h('span', { class: 'wtx-pill hot', title: 'the folder no longer exists: use Prune' }, 'folder missing') : null,
       isDirty(w) ? h('span', { class: 'wtx-pill warn', title: `${w.dirty} modified, ${w.untracked} untracked` }, `● ${w.dirty + w.untracked} uncommitted`) : null,
-      w.merged ? h('span', { class: 'wtx-pill ok', title: 'the branch tip is in ' + d.base }, '✓ merged') : (w.ahead ? h('span', { class: 'wtx-pill info' }, `${w.ahead} to merge`) : null),
+      w.merged ? h('span', { class: 'wtx-pill ok', title: 'the branch tip is in ' + d.base }, gl('✓ merged')) : (w.ahead ? h('span', { class: 'wtx-pill info' }, `${w.ahead} to merge`) : null),
       stale && !w.prunable ? h('span', { class: 'wtx-pill mute', title: 'merged, nothing running in it: safe to remove' }, 'stale') : null,
     ];
 
@@ -231,7 +231,7 @@ FEAT.worktrees = (() => {
 
     return h('div', { class: 'wtx-card' + (w.active ? ' active' : '') + (isDirty(w) ? ' dirty' : '') + (stale ? ' stale' : '') },
       h('div', { class: 'wtx-top' },
-        h('span', { class: 'wtx-name' }, h('span', { class: 'ico' }, '⎇'), h('b', null, w.branch || ('HEAD@' + w.head))),
+        h('span', { class: 'wtx-name' }, h('span', { class: 'ico' }, ico('branch', 13)), h('b', null, w.branch || ('HEAD@' + w.head))),
         h('span', { class: 'wtx-ab', title: `vs ${d.base}: ${w.ahead} ahead, ${w.behind} behind` }, w.ahead ? h('span', { class: 'up' }, '↑' + w.ahead) : null, w.behind ? h('span', { class: 'dn' }, '↓' + w.behind) : null, !w.ahead && !w.behind ? h('span', { class: 'dim' }, '=') : null),
         h('span', { class: 'wtx-sp' }), ...badges),
       h('div', { class: 'wtx-path mono', title: w.path }, w.path),
