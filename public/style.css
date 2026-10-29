@@ -475,13 +475,15 @@ input[type=checkbox] { accent-color: var(--accent); }
 .batbar b { display: block; height: 100%; border-radius: 3px; background: var(--green); transition: width .6s var(--ease); }
 .tile.warn .batbar b { background: var(--amber); } .tile.hot .batbar b { background: var(--red); }
 @media (min-width: 1281px) { .stats.n7 .tile[data-k="limits"] { grid-column: span 3; } }
-.tile .lim { position: relative; z-index: 1; margin-top: 7px; display: flex; flex-direction: column; gap: 4px; }
-.limrow { display: grid; grid-template-columns: 44px 1fr 40px 54px; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+/* the rows share one set of columns (subgrid): the 5 h row's big % widens the % column for every row, so the bars stay aligned */
+.tile .lim { position: relative; z-index: 1; margin-top: 7px; display: grid; grid-template-columns: 44px 1fr minmax(40px, auto) 54px; gap: 4px 8px; }
+.limrow { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
 .limrow .ll { text-transform: capitalize; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .limrow .lb { height: 5px; border-radius: 3px; background: var(--fill2); overflow: hidden; }
 .limrow .lb b { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
 .limrow.warn .lb b { background: var(--amber); } .limrow.hot .lb b { background: var(--red); }
 .limrow .lp { text-align: right; color: var(--text); font-family: var(--sans) !important; } .limrow.warn .lp { color: var(--amber); } .limrow.hot .lp { color: var(--red); }
+.limrow.big .lp { font-size: 24px; font-weight: 600; letter-spacing: -.02em; line-height: 1; }
 .limrow .lp.wide { grid-column: 3 / 5; white-space: nowrap; }
 .limrow .lr { text-align: right; color: var(--dim); font-size: 11.5px; font-family: var(--sans) !important; }
 .limcols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 22px; margin-top: 8px; position: relative; z-index: 1; }
@@ -489,10 +491,9 @@ input[type=checkbox] { accent-color: var(--accent); }
 .limcol .k { justify-content: flex-start; gap: 8px; }
 .limcol .k .mono { font-family: var(--sans) !important; font-size: 12px; }
 .limcol .v { font-size: 22px; } .limcol .v small { font-size: 12px; }
-.limcol.warn .v { color: var(--amber); } .limcol.hot .v { color: var(--red); }
 .limcol .lim { margin-top: 5px; }
-.limrow .lrs, .limcol .lrs { display: none; color: var(--dim); font-size: 11px; } .limrow .lrs { grid-column: 2 / -1; margin-top: -3px; }
-.limcol.stale .v, .limcol.stale .lim { opacity: .55; }
+.limrow .lrs { display: none; color: var(--dim); font-size: 11px; grid-column: 2 / -1; margin-top: -3px; }
+.limcol.stale .lim { opacity: .55; }
 .limstale { margin-top: 3px; font-size: 11.5px; color: var(--amber); }
 .limchip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .limchip .warn { color: var(--amber); } .limchip .hot { color: var(--red); font-weight: 600; }
 
@@ -1213,7 +1214,7 @@ body.recording .ckeys > :not(.mic) { pointer-events: none; opacity: .4; }
   .tile[data-k="claude"] .v, .tile[data-k="limits"] .v { font-size: 22px; }
   .limcols { grid-template-columns: 1fr 1fr; gap: 0 12px; } .limcols .limcol + .limcol { padding-left: 12px; }
   .limcol .k .mono { display: none; }
-  .limrow { grid-template-columns: 38px 1fr 34px; } .limrow .lr { display: none; } .limrow .lrs, .limcol .lrs { display: block; }
+  .tile .lim { grid-template-columns: 38px 1fr minmax(34px, auto); } .limrow .lr { display: none; } .limrow .lrs { display: block; }
   .feat-home { grid-template-columns: 1fr; gap: 10px; }
   .sj-who { width: 120px; }
   .rc-body { padding-left: 16px; } .rc-m { display: none; } .rc-row { padding: 12px 14px; gap: 12px; } .rc-head { flex-wrap: wrap; }
