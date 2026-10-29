@@ -690,23 +690,22 @@ const whenStr = ts => { const d = new Date(ts); const hm = d.toLocaleTimeString(
 const resetStr = ts => ts ? whenStr(ts) + ' (in ' + inStr(ts) + ')' : '';
 const RESET_NOTE = 'next window starts with your next message';
 const limCls = w => !w || w.pct == null || w.reset ? '' : w.pct >= 90 || w.severity === 'critical' ? 'hot' : w.pct >= 70 || (w.severity && w.severity !== 'normal') ? 'warn' : '';
-function limitRow(label, w, title) {
+function limitRow(label, w, title, big) {
   if (!w) return null; const c = limCls(w);
-  return h('div', { class: 'limrow ' + c, title: (title || label) + (w.resetsAt ? ' · resets ' + resetStr(w.resetsAt) : w.reset ? ' · reset at ' + whenStr(w.resetAt) + ' · ' + RESET_NOTE : '') }, h('span', { class: 'll' }, label), h('span', { class: 'lb' }, h('b', { style: `width:${Math.min(100, w.pct || 0)}%` })), h('span', { class: 'lp mono' }, (w.pct ?? '–') + '%'), h('span', { class: 'lr mono' }, w.resetsAt ? inStr(w.resetsAt) : w.reset ? 'reset' : ''),
+  return h('div', { class: 'limrow ' + c + (big ? ' big' : ''), title: (title || label) + (w.resetsAt ? ' · resets ' + resetStr(w.resetsAt) : w.reset ? ' · reset at ' + whenStr(w.resetAt) + ' · ' + RESET_NOTE : '') }, h('span', { class: 'll' }, label), h('span', { class: 'lb' }, h('b', { style: `width:${Math.min(100, w.pct || 0)}%` })), h('span', { class: 'lp mono' }, (w.pct ?? '–') + '%'), h('span', { class: 'lr mono' }, w.resetsAt ? inStr(w.resetsAt) : w.reset ? 'reset' : ''),
     w.resetsAt || w.reset ? h('span', { class: 'lrs' }, w.resetsAt ? [ico('refresh', 11), ' ' + whenStr(w.resetsAt)] : 'reset at ' + whenStr(w.resetAt)) : null);
 }
-// one column of the "Claude usage limits" card: big 5 h number + reset, then the week / Fable / extra rows
+// one column of the "Claude usage limits" card: 5 h reset in the header, then the 5 h (big %) / week / Fable / extra rows
 function limitCol(account, L) {
   const badge = h('span', { class: 'badge tag acc ' + account, title: (L.plan || '') + (L.tier ? ' · ' + L.tier : '') + (L.fetchedAt ? ' · fetched ' + ago(L.fetchedAt) + ' ago' : '') + (L.error ? ' · last fetch failed: ' + L.error : '') }, acct(account), L.plan ? ' · ' + L.plan : '');
   if (L.error && !L.session) return h('div', { class: 'limcol' }, h('div', { class: 'k' }, badge), h('div', { class: 'v' }, '–'), h('div', { class: 's' }, L.error));
   const se = L.session; const all = [se, L.weekly, ...(L.scoped || [])].map(limCls); const cls = all.includes('hot') ? 'hot' : all.includes('warn') ? 'warn' : '';
-  const seReset = se?.resetsAt ? 'resets ' + resetStr(se.resetsAt) : se?.reset ? `reset at ${whenStr(se.resetAt)} · ${RESET_NOTE}` : null;
+  const seReset = se?.resetsAt ? 'resets ' + whenStr(se.resetsAt) : se?.reset ? `reset at ${whenStr(se.resetAt)} · ${RESET_NOTE}` : null;
   return h('div', { class: 'limcol ' + cls + (L.stale ? ' stale' : '') },
     h('div', { class: 'k' }, badge, seReset ? h('span', { class: 'mono dim', style: 'text-transform:none;letter-spacing:0;font-weight:500' }, seReset) : null),
-    h('div', { class: 'v' }, String(se?.pct ?? '–'), h('small', null, se ? '% of 5h session' : (L.error || 'no session window'))),
-    seReset ? h('div', { class: 'lrs' }, se.resetsAt ? [ico('refresh', 11), ' ' + whenStr(se.resetsAt)] : seReset) : null,
+    se ? null : h('div', { class: 's' }, 'no 5h session window'),
     L.stale && L.fetchedAt ? h('div', { class: 'limstale' }, `as of ${whenStr(L.fetchedAt)}` + (L.error ? ' · ' + L.error : ' · not refreshed since')) : null,
-    h('div', { class: 'lim' }, limitRow('week', L.weekly, '7-day window, all models'), ...(L.scoped || []).map(w => limitRow(w.name, w, `7-day window, ${w.name} only`)),
+    h('div', { class: 'lim' }, limitRow('5h', se, '5-hour session', true), limitRow('week', L.weekly, '7-day window, all models'), ...(L.scoped || []).map(w => limitRow(w.name, w, `7-day window, ${w.name} only`)),
       L.extra?.enabled ? h('div', { class: 'limrow' }, h('span', { class: 'll' }, 'extra'), h('span', { class: 'lb' }, h('b', { style: `width:${Math.min(100, L.extra.pct || 0)}%` })), h('span', { class: 'lp mono wide' }, `${usd(L.extra.used || 0)} / ${usd(L.extra.limit)}`)) : null));
 }
 function limitsTile(LM) {
