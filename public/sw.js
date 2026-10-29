@@ -17,7 +17,7 @@ self.addEventListener('notificationclick', e => {
     const since = e.notification.data?.since ?? null;
     const p = e.action === 'allow' || e.action === 'deny' ? post('answer', { session: sess, since, choice: e.action }) : post('send', { session: sess, text: 'Yes, go on.' });
     const failed = msg => self.registration.showNotification("Couldn't answer — open the app", { body: msg || '', tag: 'bd-answer-' + sess, icon: '/icon-192.png', badge: '/icon-192.png', data: { url: e.notification.data?.url || '/', session: sess } });
-    e.waitUntil(p.then(async r => { if (!r.ok) { let j = {}; try { j = await r.json(); } catch {} await failed(j.error); } }).catch(() => failed('no connection to the beast'))); return;
+    e.waitUntil(p.then(async r => { if (!r.ok) { let j = {}; try { j = await r.json(); } catch {} await failed(j.error); } }).catch(() => failed('no connection to the server'))); return;
   }
   const url = new URL(e.notification.data?.url || '/', self.location.origin).href;
   // Also park the target in Cache Storage: iOS often resumes a frozen PWA *after* our postMessage was sent (or reloads it),

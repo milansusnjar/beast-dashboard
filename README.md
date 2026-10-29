@@ -10,7 +10,7 @@ your projects and it gives you:
 
 - **Two layouts, one app** — on a desktop a rail keeps every live session one click away (state,
   what it is doing) and the session opens right beside it; on a phone a tab bar (Home · Inbox ·
-  Sessions · Projects · Tasks), agents as a list, sheets that slide up. Colour has one job: warm
+  Sessions · Code · Tasks), agents as a list, sheets that slide up. Colour has one job: warm
   means *waiting on you*, cool means *the machine is working*.
 - **Inbox** — every session that waits for you (done, permission prompt, error, usage limit) in one
   sheet, each with a reply box and the mic; permission prompts get Allow / Deny. Home leads with
@@ -19,6 +19,12 @@ your projects and it gives you:
 - **Every project on one screen** — discovered automatically (git repos, `package.json`,
   `pyproject`, `docker-compose`, Makefiles), grouped by the top-level folder they live in, with
   branch, uncommitted changes, last commit and the commands each one can run.
+- **Chat or terminal, your pick** — a Claude session can run as a headless **chat** (rendered
+  from the transcript, no TUI in the way) or as the real Claude Code TUI in tmux. A terminal
+  session can carry on as a chat, and a past conversation reopens either way. **＋ Session → New
+  chat** guesses the project from your prompt; **Resume** finds any past conversation.
+- **Code view** — work in progress across all repos and git worktrees; checkpoints let you see and
+  undo what a Claude turn changed.
 - **Claude Code sessions as cards** — which project, what it is doing right now (`working: npm test`),
   whether it is *done and waiting for you*, *needs permission* or *hit an error*, its last message,
   and a reply box. Sessions live in tmux on the server, so they run **24/7** without your laptop.
@@ -33,8 +39,14 @@ your projects and it gives you:
 - **Push notifications** to your phone and laptop when an agent finishes or needs you — tapping one
   opens that conversation, also when the app was in the background.
 - **Voice input** — tap the mic, talk, Stop: transcribed on your own server with Whisper
-  (optional, [below](#voice-input-whisper)); falls back to the browser's speech recognition.
+  (optional, [below](#voice-input-whisper)); falls back to the browser's speech recognition. The
+  mic is in the chat box and in the New session dialog.
 - **Git without a terminal** — switch branches, stage, commit, push, read diffs, edit files.
+- **Review tray** — click a line in any diff to comment on it; the comments pile up in a tray and
+  go to a session as one message (or into its chat box to edit first).
+- **Project icons** — every project, and every org folder, gets a tile: the icon found in the
+  project, otherwise a glyph for its stack, or one you set yourself. They show in the rail, the
+  session list, the palette and the chat header.
 - **Tasks** — a personal backlog of prompt-style tasks per project; "Run" hands one to a Claude
   session (or starts one).
 - **Tunnels** — ports that projects bind on `127.0.0.1` are forwarded onto your Tailscale IP with
@@ -62,10 +74,43 @@ your projects and it gives you:
   7-day line (all models, subagents).
 - **Android emulator** — a live thumbnail on Home; a sheet with the screen (tap, swipe, back / home /
   recents, typing), start and stop per AVD (optional, [below](#android-emulator-optional)).
+- **Sleep (optional)** — a button that suspends the server and sets an RTC alarm so it wakes
+  itself on the next weekday morning ([below](#sleep-button-optional)).
 - **Updates itself** — open pages reload into a new build on their own when idle.
 
 It runs on a home server, a VPS or any Linux machine you can SSH into. No accounts, no cloud,
 nothing leaves your tailnet.
+
+## What's new in 3.0
+
+- **Chat sessions.** Besides a Claude Code TUI in tmux, a session can now be a *chat*: a headless
+  `claude -p` that the dashboard drives itself and renders as a conversation. Same account, same
+  transcript files, same cards, inbox and push. A terminal session can carry on as a chat
+  (**Continue in chat**, same conversation), and a past conversation can be reopened either way.
+- **New chat** — type the prompt and the project is picked from what you wrote (no tokens spent on
+  that); change it with one click. **Resume** searches every past conversation of both accounts.
+  The mic works in the dialog.
+- **Code view and work in progress.** Every repo with uncommitted changes or unpushed commits, across
+  all projects, in one place: per repo, per group of repos, per git worktree branch, or per session.
+  Home shows it as one line that opens Code.
+- **Checkpoints.** Each Claude turn that edits files gets a snapshot; see what the turn changed and
+  undo (or redo) only the files that turn touched.
+- **Review tray.** Comment on single diff lines, collect the comments, send them to a session as one message.
+- **Fork, settle, snooze.** Fork a chat from where it is; dim a finished session until it needs you
+  again; snooze one for an hour or until tomorrow morning.
+- **Claude Code version check.** A new Claude Code build is started once as a test before chats
+  use it; a broken one is skipped (chats stay on the last good build), and you can pin a version.
+  Chats move to a new version on their own, one by one.
+- **Project icons.** Found in the project (favicon, app icon, Expo icon, Android / iOS launcher
+  icons), a tech glyph otherwise; set your own or have Claude draw one.
+- **Chat header and rail.** A context meter, a session menu (new chat, compact, rename, move to
+  another folder, kill), a files panel beside the chat, rename from the rail.
+- **A new look.** One SVG icon set instead of glyphs, tonal buttons, an indigo primary action.
+- **Smaller things.** Battery tile and push, an update button for Claude Code installed with mise,
+  an optional Sleep button with a wake alarm, big pastes become a file, links that open New chat
+  with a prompt, more settings (see [Configuration](#configuration)).
+
+Upgrading from 2.x: `git pull && ./install.sh`. Nothing in `state/` needs migrating.
 
 ## A tour
 
@@ -90,6 +135,24 @@ Open it to see exactly what Claude changed: the Edit / Write diffs and the Bash 
 | Done, waiting for you | The same session as the real Claude Code TUI |
 |---|---|
 | ![Chat of a finished session: Claude's summary with a list and a question](docs/screenshots/chat-done.png) | ![Terminal view: Claude Code running in tmux, in the browser](docs/screenshots/terminal.png) |
+
+### Start anywhere, pick up anything
+
+**New chat** — type what you want done. The project is guessed from the words (names, paths, the
+folder you are in, what you used lately) and shown as a chip you can change; the account follows
+the project's usual one. `＋ Session` is the same dialog with a **Resume** tab.
+
+![New chat dialog: a prompt, the guessed project as a chip, the mic and Start chat](docs/screenshots/new-chat.png)
+
+**Code** — every repo with pending changes or unpushed commits, grouped by org; repos that sit in
+one folder form a set, worktrees of the same branch across repos form a group. Pick a scope to see
+its changes, commits and files, with a diff or file viewer, and which live Claude is editing what.
+
+![Code view: repos with staged, modified and untracked counts, unpushed commits, live session dots, and a diff on the right](docs/screenshots/code.png)
+
+**Icons** — every project gets one: found in the project, a tech glyph otherwise, or your own.
+
+![Set icon sheet: upload an image or ask Claude to draw an SVG](docs/screenshots/icons.png)
 
 ### Terminals, git and files
 
@@ -142,7 +205,7 @@ If that is you, Beast Dash is the page you leave open.
 
 - Linux with **systemd** (Ubuntu/Debian/Fedora/Arch … — the installer uses `systemctl --user`)
 - **Node 18+** (developed on 24) — no `npm install` needed
-- **tmux** — required; every command the dashboard runs lives in a tmux session
+- **tmux** — required; every command the dashboard runs lives in a tmux session, chats included
 - **Tailscale** on the server and on your devices — the intended way to reach it (see *Access*)
 
 Optional, each one unlocks a feature and is skipped cleanly when missing:
@@ -150,14 +213,16 @@ Optional, each one unlocks a feature and is skipped cleanly when missing:
 | Tool | Gives you |
 |---|---|
 | `ttyd` | the terminal in the browser |
-| `git` | branch / changes / commits on the cards |
+| `git` | branch / changes / commits on the cards; also the Code view, worktrees and checkpoints |
 | `socat` | automatic port forwarding onto the tailnet |
 | `docker` | container list, compose up/down, container logs |
 | `jq` | smaller Claude hook payloads (falls back to a size cap) |
 | NVIDIA driver | the GPU tile (read through NVML by the Rust probe, `nvidia-smi` otherwise) |
 | `cargo` 1.78+ (Rust, via rustup) | the faster process probe — see *Configuration* |
 | `python3` | the "⌨ Shell" button reads `devRoot`; icon regeneration |
-| **Claude Code** | the agent cards, transcript view, usage limits |
+| **Claude Code** | the agent cards, transcript view, usage limits, and chat sessions (they run `claude -p`) |
+| `mise` | the update button for a Claude Code that mise installed (`mise outdated claude`) |
+| `sudo` without a password for `rtcwake` and `systemd-run` | only for the optional Sleep button |
 
 ```bash
 sudo apt install tmux git socat ttyd jq     # Debian / Ubuntu
@@ -267,6 +332,52 @@ changes with their state. Git worktrees are not listed as projects of their own:
 one counts for its repo, and the picker shows a ⎇ chip with each worktree's branch and status (the repo
 itself has to be inside `devRoot` for its worktrees to show up).
 
+**Chat sessions.** **＋ Session** (or `s`) opens *New session*: type a prompt and press **Start
+chat**. The dashboard starts a small runner in tmux (`claude-chat-<date>-<time>`) that keeps one
+headless `claude -p` process (stream-json) behind a unix socket, in the project it guessed, on the
+account you picked. Messages, Stop, questions Claude asks and permission prompts all go through
+that socket, so a chat needs no terminal at all, survives a dashboard restart like any other
+session, and is restored after a reboot like the rest. It writes the same transcripts as the TUI,
+so Recap, cost, search, the inbox and push work unchanged. The guess weighs project names in your
+text (also with case endings), paths, the folder you are in, what you used lately and which account
+a project usually runs on; it costs no tokens. Chats run with `--dangerously-skip-permissions`, like
+the TUI sessions the dashboard starts.
+The chat header shows a **context meter** (also for terminal sessions) and a menu: *New chat here*,
+*Compact context* (when idle), *Rename*, *Move to folder* (same conversation, Claude continues in
+another project or folder), mute, copy the attach command, *Kill session*. A chat that is waiting
+on a question or a permission prompt pushes to your phone like a terminal session does.
+**Continue in chat** on a terminal session turns it into a chat on the same conversation;
+**Resume** in New session lists every past conversation of both accounts (title, first and last
+prompt, the projects it touched, grouped by day) and opens one as a chat or in a terminal.
+**Fork chat** (session menu, when Claude is not in a turn) starts a new chat from the conversation
+so far and leaves the original as it is.
+
+**What changed.** Every turn that edits files gets a **checkpoint**: a snapshot of the working
+tree of the repos the session was editing (up to six), taken as git objects without creating any branch, tag or ref, with
+the list of files, `+/−` and a diff. The chat shows *3 files changed +42 −7* under the turn with
+**Diff** and **Undo**; Undo puts back only the files that turn changed (and **Redo** brings them
+back), it is refused while Claude is working, and a file the snapshot could not hold (too large) is
+left alone and reported. *Changes by turn…* in the session menu lists them all. Checkpoints are kept
+for 14 days. The **Files** button beside the chat opens a side panel (`f`) with the repos the session
+edited, their pending changes and a file or diff viewer; **± WIP** adds a brief of the pending
+work to the message you are writing. On the diffs, a click on a line opens a comment box; the
+comments go to the **review tray** (a pill at the bottom, also in the palette), from which they are
+sent to a session, or into its chat box.
+
+**Settle and snooze.** *Settle* in the session menu dims a session until it needs you again
+(a question, a permission prompt, an error or a usage limit); it leaves the inbox meanwhile.
+*Snooze* mutes the *done* push and the inbox entry for an hour or until 8:00 tomorrow.
+*Unsettle* / *Unsnooze* brings it back.
+
+**Work in progress.** Home shows one line (repos, files, unpushed commits, live sessions) that
+opens **Code**. Code lists every repo under `devRoot` — worktrees included — that has staged,
+modified or untracked files, a merge or rebase in progress, or commits not pushed, grouped by org.
+A folder that holds two or more git repos is a *set*; the same branch checked out as a worktree in
+several repos is a *group*. Choose a scope (everything, a set, a group, a repo, or one session's
+repos) to get its changes and recent commits, a diff and file viewer, and which Claude sessions have edited each file, read from their transcripts and
+subagents. Filters: All · Personal · Company · Live.
+The brief of any scope can be added to a session's message. `?view=code` opens it directly.
+
 **Knowing what it's doing.** `bin/install-hooks.js` registers `bin/claude-hook.sh` as a Claude Code
 hook (SessionStart, UserPromptSubmit, PreToolUse, PermissionRequest, Notification, Stop,
 StopFailure, SessionEnd). Every event is POSTed to the dashboard tagged with the tmux session, so a
@@ -283,8 +394,8 @@ the right, Claude's on the left in the order it happened, tool calls folded into
 text (open one for the Edit / Write diff, the Bash command and output, an agent's answer — loaded
 only when opened), *worked 3m 12s* at the end of each turn, and while Claude works a live turn with what it is running and its
 own status line (`✻ Testing… 4m 08s · ↓ 7.5k tokens`) plus ■ Stop. *Files edited* links to the
-diffs. Drop or paste files (or tap 📎) to attach them — they land in `~/dev/.pasted` and their paths go into
-your message. `Esc`, `^C`, `y`/`n` are one tap away. **Terminal** mode is the same session as the real
+diffs. Drop or paste files (or tap 📎) to attach them — they land in `<devRoot>/.pasted` and their paths go into
+your message; a big paste (32 KB and more) is attached as a file instead of flooding the box. `Esc`, `^C`, `y`/`n` are one tap away. **Terminal** mode is the same session as the real
 Claude Code TUI; the switch is one per device.
 
 **Scheduling.** ⏰ on a session: send a prompt (or a chain of prompts — each waits for the previous
@@ -299,6 +410,15 @@ limits* shows the same 5-hour / 7-day windows as `/usage` inside Claude Code. Fo
 OAuth token Claude Code keeps in `~/.claude/.credentials.json` and asks Anthropic's usage
 endpoint — the token is never sent anywhere else and never refreshed by the dashboard.
 
+**Claude Code versions.** Claude Code updates itself, and a broken build would break every chat.
+So each new build is started once as a test (a quick start that sends no prompt); one that passes
+is kept as the *last good build* (the two latest are copied into `state/claude-lkg/`), one that
+fails raises a banner and chats keep running on the last good one while terminal sessions use
+whatever is installed. The banner offers **Check again**, **Use X anyway** (pin it) and **Unpin**.
+When a new version passes, chat sessions move over one by one: idle ones at once, busy ones after
+their turn (setting *Move chats to a new Claude Code*, `chatAutoUpgrade`); a banner offers to
+restart the idle terminal sessions too.
+
 **After a reboot.** Sessions are remembered (`state/claude-sessions.json`); a banner offers
 *Restore all* (`claude --resume <id>` in the same folder), or set *auto-restore* in Settings.
 The card also shows ↻ when a newer Claude Code is installed; one click restarts the session on it.
@@ -306,7 +426,8 @@ Installed with mise (Omarchy), Claude Code can't update itself, so ↻ shows the
 one click runs `mise upgrade claude` and restarts the session (*Update Claude Code* in the palette just installs it).
 
 **Search.** `⌘K` then `? words` searches every past conversation on the machine; open one
-read-only and *Resume here*.
+read-only and *Resume here*. *Copy prompt link* in the palette makes a URL that opens New chat with
+a prompt (and optionally a project) filled in; nothing runs until you press Start chat.
 
 ## Everyday use
 
@@ -317,11 +438,13 @@ read-only and *Resume here*.
 - **Rail** (desktop) — every live session in a fixed order (alphabetical by tmux name — positions
   never jump), its state, what it is doing and which Claude account it runs on; a session opens beside it. The focus button in the
   session bar hides the rail for screen sharing.
-- **Inbox** — `i`; **Android** — `a`.
+- **Inbox** — `i`; **Android** — `a`; **session files panel** — `f`; **New session** — `s`.
 - **Projects** — cards grouped by org. ▶ runs the primary command; ▾ lists every script /
   Makefile target / compose action / your own custom commands. *Open* → the drawer: Overview,
   Changes (stage · commit · push, diffs), Files (tree, diffs, editor), Logs, Branches, Docker,
   History.
+- **Code** — work in progress across repos and worktrees (above); is a tab next to Home, Projects and
+  Tasks, and opens from the Home line and from the Files button in a session.
 - **Tasks** — your backlog, per project, with attachments that survive restarts.
 - **Terminals** — the terminal panel with a session list; `t`, `n` (next session that needs you),
   `s` (new terminal), `1-9` switch. Inside a terminal: `Ctrl+Shift+←/→` switch, `Ctrl+Shift+↑` back, `Shift+Enter` new line in Claude Code's prompt.
@@ -352,6 +475,11 @@ Everything lives in `state/` (gitignored) and is edited through ⚙ Settings, wh
 | `autoRestore` | `false` | bring Claude sessions back automatically after a reboot |
 | `accountLabels` | `{personal: 'Personal', company: 'Company'}` | display names of the two Claude logins (`~/.claude`, `~/.claude-company`) |
 | `pushContact` | `mailto:admin@example.com` | VAPID contact sent to push services — set it to yours |
+| `orgColors` | `{}` | colour per org folder, e.g. `{"work": "#82a8f5"}` (hex or `var(--…)`); unset orgs get one from the palette |
+| `orgAccounts` | `{}` | Claude account an org uses in Code filters, e.g. `{"work": "company"}` |
+| `claudeAttach` | `''` | template for *Copy attach command* on Claude sessions, e.g. `cs {c}{name}` (`{c}` = `-c ` for company sessions, `{name}` = session name without `claude-`) |
+| `attachVia` | `ssh` | `ssh` or `mosh` for the copied attach command of other sessions |
+| `sleepButton` | `false` | show the Sleep button ([below](#sleep-button-optional)) |
 | `notify` | all on | which events push, quiet hours |
 | `serverName` | hostname | name in system push titles (*"myserver CPU 92 °C"*) |
 | `voiceLangs` | `[]` | languages the mic toggles between, e.g. `["en", "de"]` (first = default); empty = auto |
@@ -375,6 +503,33 @@ bin/probe-mode.sh status
 
 If the helper fails three times in a row the dashboard falls back to Node on its own; `host.probe`
 in `/api/state` says which path is live.
+
+## Project icons
+
+Every project and every org folder gets a tile. Beast looks for an icon in the project itself, in this
+order: the `expo.icon` of `app.json`, `app/icon.(png|svg)` and `app/favicon.ico` (Next.js), a
+`favicon*` / `icon*` / `apple-touch-icon*` / `logo*` file under `public/` or `static/`, `assets/icon.png`,
+`src/assets/`, and finally the Android (`mipmap-xxxhdpi/ic_launcher.png`) or iOS (`AppIcon.appiconset`)
+launcher icon. SVG wins over PNG, PNG over ICO; files over 512 KB are skipped. Nothing found → a glyph
+for the stack (Next, React, Expo, Node, Python, Docker, …).
+
+To set your own, open the card's ⋯ menu (or an org's ⋯) → **Set icon…**: upload an SVG, PNG, JPG,
+WebP or ICO, reset to the found one — or **Ask Claude to draw one**. That starts a chat in the project
+(or the org folder) that looks at the README and code and writes one SVG to
+`state/icons/custom/<project-id>.svg` (orgs: `org-<name>.svg`); the tile updates as soon as the file
+lands. When some projects have no icon, the Projects view shows a banner — *N projects have no icon —
+Ask Claude to draw them* — which starts one chat for all of them. Uploaded and drawn SVGs are checked
+(no scripts, event handlers, `javascript:` or external references) and served with a sandboxing CSP.
+
+## Sleep button (optional)
+
+For a desktop that should not run all night: set `sleepButton: true` and ⚙ Settings gets a **Power → Sleep** row.
+It sets an RTC alarm for the next weekday (Mon–Fri 07:00) and suspends the machine; the dashboard shows when
+it will wake. It needs passwordless sudo for exactly two commands, e.g. in `/etc/sudoers.d/beast-sleep`:
+
+```
+youruser ALL=(root) NOPASSWD: /usr/sbin/rtcwake, /usr/bin/systemd-run
+```
 
 ## Android emulator (optional)
 
