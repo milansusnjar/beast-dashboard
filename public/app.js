@@ -112,6 +112,7 @@ const ICONS = {
   clip: '<path d="m21 12-8.5 8.5a5 5 0 0 1-7-7L14 5a3.3 3.3 0 0 1 4.7 4.7L10.5 18a1.7 1.7 0 0 1-2.4-2.4L16 7.7"/>',
   mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
   sched: '<circle cx="12" cy="12" r="7.5"/><path d="M12 8.5V12l2.2 1.4"/>',
   full: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
   copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/>',
@@ -1823,11 +1824,12 @@ function scheduleDialog(name, draft) {
   const sess = S.runtime.sessions.find(x => x.name === name); const cl = sess?.claude || {};
   const pad = n => String(n).padStart(2, '0'); const local = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   let at = Date.now() + 30 * 60e3;
-  const when = h('input', { class: 'txt', type: 'datetime-local', value: local(new Date(at)) });
+  const wp = FEAT.when ? FEAT.when.picker(at, t => { at = t; rel.textContent = inStr(); for (const c of chips.children) c.classList.toggle('on', +c.dataset.at === Math.round(at / 60e3)); }) : null;
+  const when = wp ? null : h('input', { class: 'txt', type: 'datetime-local', value: local(new Date(at)) });
   const inStr = () => { const d = at - Date.now(); return d < 0 ? 'now' : d < 3600e3 ? 'in ' + Math.round(d / 60e3) + ' min' : d < 86400e3 ? 'in ' + (d / 3600e3).toFixed(1).replace('.0', '') + ' h' : 'in ' + Math.round(d / 86400e3) + ' d'; };
   const rel = h('span', { class: 'dim', style: 'font-size:12px' }, inStr());
-  const setAt = v => { at = v; when.value = local(new Date(at)); rel.textContent = inStr(); for (const c of chips.children) c.classList.toggle('on', +c.dataset.at === Math.round(at / 60e3)); };
-  when.addEventListener('input', () => { const t = Date.parse(when.value); if (t) { at = t; rel.textContent = inStr(); for (const c of chips.children) c.classList.remove('on'); } });
+  const setAt = v => { at = v; if (wp) wp.set(at); else when.value = local(new Date(at)); rel.textContent = inStr(); for (const c of chips.children) c.classList.toggle('on', +c.dataset.at === Math.round(at / 60e3)); };
+  if (when) when.addEventListener('input', () => { const t = Date.parse(when.value); if (t) { at = t; rel.textContent = inStr(); for (const c of chips.children) c.classList.remove('on'); } });
   const tonight = new Date(); tonight.setHours(23, 0, 0, 0); if (tonight.getTime() < Date.now()) tonight.setDate(tonight.getDate() + 1);
   const morning = new Date(); morning.setDate(morning.getDate() + 1); morning.setHours(9, 0, 0, 0);
   const presets = [['+15 min', 15 * 60e3], ['+30 min', 30 * 60e3], ['+1 h', 3600e3], ['+2 h', 7200e3], ['+4 h', 4 * 3600e3], ['23:00', tonight.getTime() - Date.now()], ['tomorrow 09:00', morning.getTime() - Date.now()]];
@@ -1841,7 +1843,7 @@ function scheduleDialog(name, draft) {
     h('div', { class: 'sh' }, h('h3', null, 'Schedule a message'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', onclick: () => m.classList.add('hidden') }, ico('x', 15))),
     h('div', { class: 'sbody' },
       h('div', { class: 'sto' }, avatar(sess?.project, 'sm'), h('b', null, cl.label || (sess?.project && byId()[sess.project]?.name) || name), h('span', { class: 'badge tag acc ' + (cl.account || '') }, acct(cl.account)), cl.state ? h('span', { class: 'cst mini ' + cl.state }, STATE_ICON[cl.state], ' ', STATE_LABEL[cl.state]) : null),
-      h('div', { class: 'sg' }, h('div', { class: 'sg-t' }, 'When'), chips, h('div', { class: 'swhen' }, when, rel)),
+      h('div', { class: 'sg' }, h('div', { class: 'sg-t' }, 'When'), chips, h('div', { class: 'swhen' }, wp ? wp.field : when, rel), wp ? wp.pop : null),
       h('div', { class: 'sg' }, h('div', { class: 'sg-t' }, 'Message'), msgs, h('button', { class: 'btn sm ghost', onclick: () => addMsg('').focus() }, ico('plus', 13), 'Add a follow-up message'), h('div', { class: 'hint' }, 'Follow-ups go out one by one, each after Claude finishes the previous one. If the session is busy at the time, the message waits for it to become idle.'))),
     h('div', { class: 'foot' }, h('button', { class: 'btn ghost', onclick: () => m.classList.add('hidden') }, 'Cancel'),
       h('button', { class: 'btn primary', onclick: async () => { const prompts = [...msgs.querySelectorAll('textarea')].map(t => t.value.trim()).filter(Boolean); if (!prompts.length) { first.focus(); return; }
