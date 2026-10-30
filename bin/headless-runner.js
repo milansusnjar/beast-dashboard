@@ -4,6 +4,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const { randomUUID } = require('crypto');
 const { describeTool } = require('../lib/tooldesc');
 
 const arg = name => { const i = process.argv.indexOf('--' + name); return i > 0 ? process.argv[i + 1] : undefined; };
@@ -20,12 +21,17 @@ const MAX_LINE = 4 * 1024 * 1024, MAX_TEXT = 200 * 1024, MAX_SEND = 100000;
 const INHERITED = ['CLAUDECODE', 'CLAUDE_EFFORT', 'CLAUDE_PID'];
 const KEEP = ['CLAUDE_CODE_AUTO_COMPACT_WINDOW'];
 
-const S = { state: 'starting', since: Date.now(), turn: null, rate: null, ctx: null, model: null, version: null, caps: [], error: null };
+const S = { state: 'starting', since: Date.now(), turn: null, rate: null, ctx: null, model: null, effort: null, version: null, caps: [], error: null };
 const pending = new Map();
 const clients = new Set();
 let child = null, hasConversation = arg('start') === 'resume', stopping = false, seq = 0, stderrTail = '';
 let restarting = false, heard = false, unheard = [], upgradeAfterTurn = false, upgradeTimer = null, sentWhileWorking = false;
-const queued = [];
+const queued = [], inbox = [], tookIn = new Set(), mine = new Set();
+let msgSeq = 0, dying = null, lastOut = 0, endAt = 0, sweepTimer = null;
+const SWEEP_MS = +process.env.BD_HL_SWEEP_MS || 4000;
+const MODELS = ['default', 'opus', 'sonnet', 'haiku', 'fable'], EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+let chosenModel = null, chosenEffort = null;
+const ctlWait = new Map();
 
 const dim = s => `\x1b[2m${s}\x1b[0m`;
 const out = s => { try { process.stdout.write(s); } catch {} };
@@ -35,9 +41,11 @@ const clean = s => String(s).replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]|\x1b[\]P^_][^\x
 const clock = () => new Date().toTimeString().slice(0, 8);
 
 function snapshot() {
-  return { ev: 'snapshot', v: 1, sessionId: SID, state: S.state, since: S.since, turn: S.turn, pending: [...pending.values()].map(p => p.req),
-    rate: S.rate, ctx: S.ctx, model: S.model, version: S.version, claude: CLAUDE, caps: S.caps, error: S.error };
+  return { ev: 'snapshot', v: 1, sessionId: SID, state: S.state, since: S.since, turn: S.turn, pending: [...pending.values()].map(p => p.req), inbox: inboxList(),
+    rate: S.rate, ctx: S.ctx, model: S.model, effort: S.effort, version: S.version, claude: CLAUDE, caps: S.caps, error: S.error };
 }
+function inboxList() { return inbox.map(m => ({ id: m.id, text: m.text, at: m.at })); }
+function emitInbox() { emit({ ev: 'inbox', inbox: inboxList() }); }
 function emit(o) { const l = JSON.stringify(o) + '\n'; for (const c of clients) c.write(l); }
 function setState(state) { if (S.state === state) return; S.state = state; S.since = Date.now(); emit({ ev: 'state', state, since: S.since }); }
 
@@ -54,8 +62,9 @@ const forked = () => fs.existsSync(path.join(configDir(), 'projects', CWD.replac
 function startChild() {
   const fork = FORK && !forked();
   if (FORK && !fork) hasConversation = true;
-  const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
-    '--permission-prompt-tool', 'stdio', '--dangerously-skip-permissions', ...(fork ? ['--resume', FORK, '--fork-session', '--session-id', SID] : [hasConversation ? '--resume' : '--session-id', SID])];
+  const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--replay-user-messages',
+    '--permission-prompt-tool', 'stdio', '--dangerously-skip-permissions', ...(fork ? ['--resume', FORK, '--fork-session', '--session-id', SID] : [hasConversation ? '--resume' : '--session-id', SID]),
+    ...(chosenModel ? ['--model', chosenModel] : []), ...(chosenEffort ? ['--effort', chosenEffort] : [])];
   line(dim(`[${clock()}] claude ${fork ? 'fork of ' + FORK + ' as' : hasConversation ? 'resume' : 'new session'} ${SID}  (${ACCOUNT}, ${CWD})`));
   stderrTail = ''; heard = false; unheard = []; S.version = null; upgradeAfterTurn = false; sentWhileWorking = false; clearTimeout(upgradeTimer);
   const resumed = hasConversation;
@@ -64,11 +73,13 @@ function startChild() {
   let buf = '';
   p.stdout.setEncoding('utf8');
   p.stdout.on('data', d => {
-    if (child !== p) return;
-    heard = true; unheard = [];
+    const old = child !== p;
+    if (old && dying !== p) return;
+    if (!old) { heard = true; unheard = []; }
+    lastOut = Date.now();
     buf += d;
     let i;
-    while ((i = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1); if (l.trim()) onChildLine(l); }
+    while ((i = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1); if (l.trim()) onChildLine(l, old); }
     if (buf.length > MAX_LINE * 4) buf = '';
   });
   p.stderr.setEncoding('utf8');
@@ -81,7 +92,7 @@ function startChild() {
       line(dim(`[${clock()}] ${CLAUDE} is gone, using claude from PATH`));
       CLAUDE = 'claude'; child = null;
       startChild();
-      for (const text of lost) send(text, true);
+      for (const m of lost) deliver(m, true);
       return;
     }
     S.error = `cannot start ${CLAUDE}: ${e.message}`; ended(p, 'error');
@@ -95,7 +106,7 @@ function startChild() {
       child = null; hasConversation = false;
       line(dim(`[${clock()}] no saved conversation ${SID}, starting it new`));
       startChild();
-      for (const text of lost) send(text, true);
+      for (const m of lost) deliver(m, true);
       return;
     }
     ended(p, sig || String(code));
@@ -105,7 +116,9 @@ function startChild() {
 
 function ended(p, reason) {
   child = null;
+  for (const [id, w] of ctlWait) { ctlWait.delete(id); w({ subtype: 'error', error: 'claude exited' }); }
   line(dim(`[${clock()}] claude exited (${reason})`) + (S.error ? '  ' + S.error : ''));
+  dropUntaken('claude exited');
   endTurn('exited', reason);
   setState('exited');
   if (stopping) finish();
@@ -142,8 +155,11 @@ function appendText(t) {
   out(!midLine && /^\s*[>❯]/.test(c) ? ' ' + c : c); midLine = !t.endsWith('\n');
 }
 
-function onChildLine(l) {
+const isEcho = o => o.type === 'user' && o.isReplay === true && !o.parent_tool_use_id && !(Array.isArray(o.message && o.message.content) && o.message.content.some(b => b && b.type === 'tool_result'));
+function onChildLine(l, old) {
   let o; try { o = JSON.parse(l); } catch { return; }
+  if (isEcho(o)) return takeIn(o);
+  if (old) return;
   if (o.type === 'stream_event') return onStream(o);
   if (o.type === 'assistant' && !o.parent_tool_use_id) {
     const u = o.message && o.message.usage;
@@ -168,6 +184,11 @@ function onChildLine(l) {
     return;
   }
   if (o.type === 'control_request') return onControl(o);
+  if (o.type === 'control_response' && o.response) {
+    const w = ctlWait.get(o.response.request_id);
+    if (w) { ctlWait.delete(o.response.request_id); w(o.response); }
+    return;
+  }
   if (o.type === 'control_cancel_request') {
     if (pending.delete(o.request_id)) emit({ ev: 'resolved', rid: o.request_id });
     return;
@@ -182,6 +203,7 @@ function onChildLine(l) {
     line(dim(`[${clock()}] done (${o.subtype}${o.terminal_reason && o.terminal_reason !== 'completed' ? ', ' + o.terminal_reason : ''}, ${Math.round(ms / 100) / 10}s)`));
     emit({ ev: 'result', subtype: o.subtype, reason: o.terminal_reason || null, ms });
     setState('idle');
+    endAt = Date.now(); clearTimeout(sweepTimer); sweepTimer = setTimeout(sweep, SWEEP_MS);
     const late = sentWhileWorking; sentWhileWorking = false;
     if (upgradeAfterTurn && !late) { clearTimeout(upgradeTimer); upgradeTimer = setTimeout(upgradeIfIdle, 1500); }
     return;
@@ -201,6 +223,7 @@ function onChildLine(l) {
     S.model = o.model || null; S.version = o.claude_code_version || null; S.caps = Array.isArray(o.capabilities) ? o.capabilities : [];
     S.error = S.caps.includes('interrupt_receipt_v1') ? null : `claude ${S.version || '?'} may not support the headless control protocol (no interrupt_receipt_v1)`;
     emit(snapshot());
+    readApplied();
   }
 }
 
@@ -240,6 +263,45 @@ function respond(rid, response) {
   emit({ ev: 'resolved', rid });
 }
 
+function ctl(request) {
+  if (!child) return Promise.resolve({ subtype: 'error', error: 'claude is not running' });
+  const id = `bd-${++seq}`;
+  return new Promise(resolve => {
+    ctlWait.set(id, resolve);
+    setTimeout(() => { if (ctlWait.delete(id)) resolve({ subtype: 'error', error: `no answer to ${request.subtype}` }); }, 4000).unref();
+    write({ type: 'control_request', request_id: id, request });
+  });
+}
+
+async function readApplied() {
+  const r = await ctl({ subtype: 'get_settings' });
+  const a = r.subtype === 'success' && r.response && r.response.applied;
+  if (!a) return;
+  if (a.model) S.model = a.model;
+  S.effort = a.effort || null;
+  emit(snapshot());
+}
+
+async function setModel(model) {
+  chosenModel = model === 'default' ? null : model;
+  if (!child) return null;
+  const r = await ctl({ subtype: 'set_model', model });
+  if (r.subtype !== 'success') return r.error || 'set_model failed';
+  line(dim(`[${clock()}] model ${model}`));
+  await readApplied();
+  return null;
+}
+
+async function setEffort(level) {
+  chosenEffort = level;
+  if (!child) return null;
+  const r = await ctl({ subtype: 'apply_flag_settings', settings: { effortLevel: level } });
+  if (r.subtype !== 'success') return r.error || 'effort change failed';
+  line(dim(`[${clock()}] effort ${level}`));
+  await readApplied();
+  return null;
+}
+
 function interrupt() {
   if (!child || S.state !== 'working') return;
   for (const rid of [...pending.keys()]) respond(rid, { behavior: 'deny', message: 'Interrupted by user' });
@@ -247,33 +309,81 @@ function interrupt() {
   line(dim(`[${clock()}] interrupt`));
 }
 
-function send(text, again) {
-  if (restarting) { queued.push(text); beginTurn(); return; }
+const flat = s => String(s).replace(/\s+/g, ' ').trim();
+const short = (s, n) => s.length > n ? s.slice(0, n) + '…' : s;
+function replayText(c) { return typeof c === 'string' ? c : Array.isArray(c) ? c.filter(b => b && b.type === 'text' && typeof b.text === 'string').map(b => b.text).join('\n') : ''; }
+function endingIn(open, e, t) {
+  const cut = (r, x) => r === x ? '' : x && r.endsWith(' ' + x) ? r.slice(0, -x.length - 1) : null;
+  const run = [open[e]];
+  let rest = cut(t, flat(open[e].text));
+  for (let i = e - 1; rest && i >= 0; i--) { const n = cut(rest, flat(open[i].text)); if (n !== null) { run.unshift(open[i]); rest = n; } }
+  return rest === '' ? run : null;
+}
+function takeIn(o) {
+  const t = flat(replayText(o.message && o.message.content)), open = inbox.filter(m => !queued.includes(m));
+  if (!open.length) return;
+  const own = o.uuid ? open.find(m => m.uuid === o.uuid) : null;
+  if (!own && o.uuid && mine.has(o.uuid)) return;
+  let run = own ? endingIn(open, open.indexOf(own), t) || [own] : null;
+  for (let e = 0; !run && t && e < open.length; e++) run = endingIn(open, e, t);
+  if (!run) return;
+  for (const m of run) { inbox.splice(inbox.indexOf(m), 1); if (tookIn.delete(m.id)) line(dim(`  ↳ claude took in: ${clean(short(flat(m.text), 120))}`)); }
+  emitInbox();
+}
+function dropUntaken(why, which = () => true) {
+  const lost = inbox.filter(m => !queued.includes(m) && which(m));
+  if (!lost.length) return;
+  for (const m of lost) { inbox.splice(inbox.indexOf(m), 1); tookIn.delete(m.id); line(dim(`  ✗ not taken in (${why}): ${clean(short(flat(m.text), 120))}`)); }
+  unheard = unheard.filter(m => inbox.includes(m));
+  emitInbox();
+}
+const stale = m => m.at < endAt;
+function sweep() {
+  sweepTimer = null;
+  if (!child || restarting || S.turn || S.state !== 'idle') return;
+  const wait = lastOut + SWEEP_MS - Date.now();
+  if (wait > 0) { sweepTimer = setTimeout(sweep, wait); return; }
+  dropUntaken('no echo from claude', stale);
+}
+
+function send(text) {
+  const m = { id: `m-${++msgSeq}`, uuid: randomUUID(), text, at: Date.now() };
+  mine.add(m.uuid);
+  inbox.push(m); emitInbox();
+  deliver(m, false);
+  return m.id;
+}
+function deliver(m, again) {
+  if (restarting) { if (!queued.includes(m)) queued.push(m); beginTurn(); return; }
   if (!child) startChild();
   const injected = S.state === 'working' && !again;
-  if (injected) sentWhileWorking = true;
-  write({ type: 'user', message: { role: 'user', content: text } });
-  if (!heard) unheard.push(text);
+  if (injected) { sentWhileWorking = true; tookIn.add(m.id); }
+  write({ type: 'user', uuid: m.uuid, message: { role: 'user', content: m.text } });
+  if (!heard) unheard.push(m);
   hasConversation = true;
-  if (!again) line(clean(`${injected ? 'you (while working)' : 'you'}: ${text.length > 400 ? text.slice(0, 400) + '…' : text}`));
-  beginTurn();
+  if (!again) { line(clean(`${injected ? 'you (while working)' : 'you'}: ${short(m.text, 400)}`)); beginTurn(); }
 }
 
 function restart() {
   if (restarting) return;
   if (!child) { startChild(); return; }
   const old = child;
-  child = null; restarting = true;
+  dropUntaken('no echo from claude', stale);
+  dying = old; child = null; restarting = true;
   endTurn('restarted', 'restart');
   let done = false;
   const respawn = () => {
     if (done) return;
-    done = true; restarting = false;
+    done = true; restarting = false; dying = null;
     if (stopping) return finish();
     startChild();
-    for (const text of queued.splice(0)) send(text);
+    const again = inbox.filter(m => !queued.includes(m));
+    if (again.length) line(dim(`[${clock()}] sending again ${again.length} message${again.length > 1 ? 's' : ''} claude had not taken in yet`));
+    for (const m of again) deliver(m, true);
+    for (const m of queued.splice(0)) deliver(m, false);
   };
-  old.on('exit', respawn);
+  old.on('close', respawn);
+  old.on('exit', () => setTimeout(respawn, 1000));
   old.on('error', respawn);
   try { old.stdin.end(); } catch {}
   old.kill('SIGTERM');
@@ -308,7 +418,7 @@ function onClientOp(c, m) {
       if (stopping) return fail('runner is stopping');
       const text = typeof m.text === 'string' ? m.text : '';
       if (!text.trim() || text.length > MAX_SEND) return fail('text must be 1..100000 chars');
-      send(text); return ack();
+      return c.write(JSON.stringify({ ev: 'ack', cid: m.cid, id: send(text) }) + '\n');
     }
     case 'interrupt': interrupt(); return ack();
     case 'answer': {
@@ -325,6 +435,16 @@ function onClientOp(c, m) {
       return ack();
     }
     case 'restart': restart(); return ack();
+    case 'model': {
+      if (!MODELS.includes(m.model)) return fail('model must be one of ' + MODELS.join(', '));
+      setModel(m.model).then(e => e ? fail(e) : ack());
+      return;
+    }
+    case 'effort': {
+      if (!EFFORTS.includes(m.effort)) return fail('effort must be one of ' + EFFORTS.join(', '));
+      setEffort(m.effort).then(e => e ? fail(e) : ack());
+      return;
+    }
     case 'upgrade': {
       if (typeof m.claude !== 'string' || !path.isAbsolute(m.claude) || !executable(m.claude)) return fail('claude must be an absolute path to an executable file');
       return c.write(JSON.stringify({ ev: 'ack', cid: m.cid, when: upgrade(m.claude) }) + '\n');

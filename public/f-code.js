@@ -659,11 +659,6 @@ FEAT.code = (() => {
 
   function termBarKey(name) { const b = badge(name); return [WS.on, b && b.repos, b && b.files]; }
 
-  function composerKeys(name) {
-    const cl = sessOf(name)?.claude; if (!cl) return null;
-    return h('button', { class: 'btn sm ghost qk', title: 'add the work in progress (pending files, unpushed commits) of this session\'s repos to the message', onclick: () => addWip(name) }, '± WIP');
-  }
-
   function toolOpen(t, ctx) {
     if (!t || !t.file || !['Edit', 'MultiEdit', 'Write'].includes(t.name)) return null;
     return h('button', { class: 'tr-open', title: 'open ' + t.file + ' in the viewer', onclick: ev => { ev.stopPropagation(); openAbs(t.file, ctx && ctx.session); } }, 'open');
@@ -700,5 +695,5 @@ FEAT.code = (() => {
     return true;
   }
 
-  return { open: V.open, back: V.back, onState, key, termKey, deepLink, termBar, termBarKey, composerKeys, toolOpen, openAbs, togglePanel: toggleWs, state: V.C, panel: P.C };
+  return { open: V.open, back: V.back, onState, key, termKey, deepLink, termBar, termBarKey, toolOpen, openAbs, togglePanel: toggleWs, state: V.C, panel: P.C };
 })();

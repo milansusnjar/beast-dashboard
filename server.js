@@ -351,6 +351,13 @@ function ctxOf(s) {
   const used = lc && Number.isFinite(lc.used) ? lc.used : cl.usage && Number.isFinite(cl.usage.ctx) ? cl.usage.ctx : null;
   return used == null ? null : { used, window: (lc && lc.window) || usage.ctxWindow(cl.model || (cl.usage && cl.usage.model)) };
 }
+function liveModel(s) {
+  const lv = s.claude.mode === 'chat' ? headless.live(s.name) : null;
+  if (!lv || lv.stale) return;
+  if (lv.model) s.claude.model = lv.model;
+  if (lv.effort) s.claude.effort = lv.effort;
+  s.claude.inbox = Array.isArray(lv.inbox) ? lv.inbox.length : 0;
+}
 // Claude sessions: peek at every claude-* pane, merge with hook state, keep the restore list current, scan usage.
 let lastUsageScan = 0;
 async function decorateClaude(snap) {
@@ -363,7 +370,7 @@ async function decorateClaude(snap) {
   headless.watch(cl.filter(isChat));
   claude.reconcile(names);
   claude.refreshTitles();
-  for (const s of snap.sessions) if (isClaude(s)) { s.claude = claude.info(s.name, s.activity); s.claude.usage = usage.bySession(s.claude.sessionId); s.claude.ctx = ctxOf(s); Object.assign(s.claude, await whereIs(s)); if (s.claudeVersion) s.claude.version = s.claudeVersion; const st = settle.of(s.name); if (st && !settle.wake(s.name, s.claude.state, s.claude.since || 0)) { s.claude.settled = st; s.claude.needsYou = false; } }
+  for (const s of snap.sessions) if (isClaude(s)) { s.claude = claude.info(s.name, s.activity); s.claude.usage = usage.bySession(s.claude.sessionId); s.claude.ctx = ctxOf(s); liveModel(s); Object.assign(s.claude, await whereIs(s)); if (s.claudeVersion) s.claude.version = s.claudeVersion; const st = settle.of(s.name); if (st && !settle.wake(s.name, s.claude.state, s.claude.since || 0)) { s.claude.settled = st; s.claude.needsYou = false; } }
   if (Date.now() - lastUsageScan > 30000) { lastUsageScan = Date.now(); usage.scan().then(() => pushState(false)); }
 }
 // Where a Claude session actually works: its branch, and whether that is a git worktree apart from the project
@@ -1080,6 +1087,28 @@ async function api(req, res, url) {
       if (SWITCHING.has(b.session)) return json(res, 409, { error: 'busy' });
       if (isChat(b.session)) { if (b.enter === false) return json(res, 400, { error: 'chat sessions take whole messages' }); const r = await headless.send(b.session, b.text); setTimeout(tick, 300); return json(res, r.ok ? 200 : 400, r); }
       const r = await claude.send(b.session, b.text, b.enter !== false); setTimeout(tick, 400); return json(res, r.ok ? 200 : 400, r);
+    }
+    case 'claude-model': {
+      const MODELS = ['default', 'opus', 'sonnet', 'haiku', 'fable'], EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+      if (typeof b.session !== 'string' || (b.model == null && b.effort == null)) return json(res, 400, { error: 'session + model and/or effort' });
+      if (b.model != null && !MODELS.includes(b.model)) return json(res, 400, { error: 'model must be one of ' + MODELS.join(', ') });
+      if (b.effort != null && !EFFORTS.includes(b.effort)) return json(res, 400, { error: 'effort must be one of ' + EFFORTS.join(', ') });
+      if (SWITCHING.has(b.session)) return json(res, 409, { error: 'busy' });
+      if (isChat(b.session)) {
+        for (const [k, fn] of [['model', headless.setModel], ['effort', headless.setEffort]]) {
+          if (b[k] == null) continue;
+          const r = await fn(b.session, b[k]);
+          if (!r.ok) return json(res, 409, r.error === 'unknown op' ? { ok: false, error: 'this chat was started before model switching existed; it works in chats started from now on' } : r);
+        }
+        setTimeout(tick, 300); return json(res, 200, { ok: true });
+      }
+      await claude.refreshPeeks([b.session]); const cl = claude.info(b.session);
+      if (!cl || !['idle', 'needs-you'].includes(cl.state) || cl.draft) return json(res, 409, { error: 'only when Claude is idle and nothing is typed in the terminal' });
+      for (const cmd of [b.model != null ? '/model ' + b.model : null, b.effort != null ? '/effort ' + b.effort : null].filter(Boolean)) {
+        const r = await claude.send(b.session, cmd, true); if (!r.ok) return json(res, 409, r);
+        await new Promise(r => setTimeout(r, 700));
+      }
+      setTimeout(tick, 400); return json(res, 200, { ok: true });
     }
     case 'hl-answer': {
       if (!isChat(b.session)) return json(res, 404, { error: 'not a chat session' });

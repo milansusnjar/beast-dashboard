@@ -119,6 +119,7 @@ const ICONS = {
   sidebar: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/>',
   folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
   dots: '<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>',
+  sliders: '<path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/>',
   compact: '<path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/>',
   code: '<path d="m8 7-5 5 5 5M16 7l5 5-5 5"/>',
   log: '<path d="M8 6h12M8 12h12M8 18h8M4 6h.01M4 12h.01M4 18h.01"/>',
@@ -127,6 +128,7 @@ const ICONS = {
   play: '<path d="M7 4.8v14.4a1 1 0 0 0 1.5.9l11.3-7.2a1 1 0 0 0 0-1.8L8.5 3.9A1 1 0 0 0 7 4.8z"/>',
   stop: '<rect x="6.5" y="6.5" width="11" height="11" rx="2.5" fill="currentColor"/>',
   undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+  redo: '<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>',
   branch: '<circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="7" r="2"/><path d="M6 7v10M18 9a6 6 0 0 1-6 6H6"/>',
   sparkle: '<path d="M12 3c.6 4.2 2.8 6.4 7 7-4.2.6-6.4 2.8-7 7-.6-4.2-2.8-6.4-7-7 4.2-.6 6.4-2.8 7-7z"/><path d="M19 16.5c.2 1.3.9 2 2.2 2.2-1.3.2-2 .9-2.2 2.2-.2-1.3-.9-2-2.2-2.2 1.3-.2 2-.9 2.2-2.2z"/>',
   hourglass: '<path d="M6 3h12M6 21h12M7 3c0 5 10 5 10 9s-10 4-10 9M17 3c0 5-10 5-10 9s10 4 10 9"/>',
@@ -163,6 +165,7 @@ const ICONS = {
   arrowDown: '<path d="M12 5v14M6 13l6 6 6-6"/>',
   arrowRight: '<path d="M5 12h14M13 6l6 6-6 6"/>',
   chevronDown: '<path d="m6 9 6 6 6-6"/>',
+  brain: '<path d="M12 5.5a3 3 0 0 0-5.6-1.5A3 3 0 0 0 4 8a3 3 0 0 0-1 5 3.5 3.5 0 0 0 3 5.2A3 3 0 0 0 12 19.5z"/><path d="M12 5.5a3 3 0 0 1 5.6-1.5A3 3 0 0 1 20 8a3 3 0 0 1 1 5 3.5 3.5 0 0 1-3 5.2 3 3 0 0 1-6 1.3z"/><path d="M12 5.5v14M8 9.5c1 0 2 .7 2 2M16 9.5c-1 0-2 .7-2 2M8.5 15c.9-.4 1.6-.4 2.5 0M15.5 15c-.9-.4-1.6-.4-2.5 0"/>',
   chevronRight: '<path d="m9 6 6 6-6 6"/>',
   minus: '<path d="M5 12h14"/>',
   info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5M12 7.8h.01"/>',
@@ -202,7 +205,7 @@ function setMode(mode) { if (TERM.active && isChatSess(TERM.active)) TERM.view[T
 // Chat mode for the active session: the conversation view in place of the tmux iframe (same tmux session underneath)
 async function renderChatPane(force) {
   const pane = $('#term-chat'); if (!pane) return; const name = TERM.active; const on = TERM.open && name && chatMode(name);
-  liveStream(on && isChatSess(name) && !document.hidden ? name : null);
+  liveStream(liveWanted());
   pane.classList.toggle('hidden', !on); const f = name && TERM.frames.get(name); if (f) f.classList.toggle('on', !on && f.classList.contains('on'));
   if (!on) return;
   if (pane.dataset.name !== name) { pane.innerHTML = ''; pane.append(h('div', { class: 'dim', style: 'padding:20px' }, 'loading…')); pane.dataset.name = name; TERM.chatEv.key = ''; }
@@ -218,35 +221,46 @@ async function renderChatPane(force) {
   TERM.chatEv.key = key;
   renderConversation(pane, name, t, { n: TERM.chatN, more: () => { TERM.chatN = Math.min(200, TERM.chatN * 2); renderChatPane(true); }, refresh: () => renderChatPane(false) });
 }
-const HL = { name: null, es: null, snap: null, timer: 0 };
+const HL = { name: null, es: null, snap: null, timer: 0, seen: new Set() };
+function liveWanted() {
+  if (document.hidden) return null;
+  const n = TERM.active; if (TERM.open && n && chatMode(n) && isChatSess(n)) return n;
+  const d = UI.drawer === 'session:' + SESS.name && SESS.tab === 'transcript' ? SESS.name : null;
+  return d && isChatSess(d) ? d : null;
+}
+const liveRender = force => { renderChatPane(force); if (HL.name && UI.drawer === 'session:' + HL.name && SESS.name === HL.name) renderSessionDrawer(false); };
 function liveStream(name) {
   if (HL.name === name) return;
   if (HL.es) HL.es.close();
   clearTimeout(HL.timer);
-  Object.assign(HL, { name, es: null, snap: null, timer: 0 });
+  Object.assign(HL, { name, es: null, snap: null, timer: 0, seen: new Set() });
   if (!name) return;
   const es = HL.es = new EventSource('/api/hl-live/' + encodeURIComponent(name));
   const on = (ev, fn) => es.addEventListener(ev, e => { if (HL.es !== es) return; let o; try { o = JSON.parse(e.data); } catch { return; } fn(o); });
-  const turn = () => { if (!HL.snap) HL.snap = { state: 'working', pending: [] }; if (!HL.snap.turn) HL.snap.turn = { startedAt: Date.now(), text: '', tools: [] }; return HL.snap.turn; };
-  on('snapshot', o => { HL.snap = { ...o, pending: o.pending || [] }; renderChatPane(true); });
+  const turn = () => { if (!HL.snap) HL.snap = { state: 'working', pending: [] }; if (!HL.snap.turn) HL.snap.turn = { startedAt: (HL.snap.state === 'working' && HL.snap.since) || Date.now(), text: '', tools: [] }; return HL.snap.turn; };
+  const saw = list => { for (const m of list) HL.seen.add(m.id); };
+  on('snapshot', o => { HL.snap = { ...o, pending: o.pending || [], inbox: o.inbox || [] }; saw(HL.snap.inbox); liveRender(true); });
+  on('inbox', o => { if (!HL.snap) HL.snap = { pending: [] }; const gone = (HL.snap.inbox || []).some(m => !o.inbox.some(x => x.id === m.id)); HL.snap.inbox = o.inbox || []; saw(HL.snap.inbox); liveRender(false); if (gone) setTimeout(() => liveRender(false), 900); });
   on('gone', () => { if (HL.snap) HL.snap.stale = true; });
   on('delta', o => { const t = turn(); if (t.text.length < 200 * 1024) t.text += o.text; paintLive(); });
   on('block', () => { const t = HL.snap && HL.snap.turn; if (t && t.text) t.text += '\n\n'; });
   on('tool', o => { turn().tools.push({ id: o.id, name: o.name, what: o.what, done: false, at: o.at || Date.now() }); paintLive(); });
   on('tool-done', o => { const x = HL.snap && HL.snap.turn && HL.snap.turn.tools.find(y => y.id === o.id); if (x) { x.done = true; x.error = !!o.error; } paintLive(); });
-  on('pending', o => { if (!HL.snap) HL.snap = { pending: [] }; HL.snap.pending = [...HL.snap.pending.filter(x => x.rid !== o.req.rid), o.req]; renderChatPane(false); });
-  on('resolved', o => { if (HL.snap) HL.snap.pending = HL.snap.pending.filter(x => x.rid !== o.rid); renderChatPane(false); });
-  on('state', o => { if (!HL.snap) HL.snap = { pending: [] }; HL.snap.state = o.state; HL.snap.since = o.since; if (o.state !== 'working') { HL.snap.pending = []; HL.snap.turn = null; } renderChatPane(false); });
-  on('result', () => { if (HL.snap) HL.snap.turn = null; renderChatPane(false); });
+  on('pending', o => { if (!HL.snap) HL.snap = { pending: [] }; HL.snap.pending = [...HL.snap.pending.filter(x => x.rid !== o.req.rid), o.req]; liveRender(false); });
+  on('resolved', o => { if (HL.snap) HL.snap.pending = HL.snap.pending.filter(x => x.rid !== o.rid); liveRender(false); });
+  on('state', o => { if (!HL.snap) HL.snap = { pending: [] }; HL.snap.state = o.state; HL.snap.since = o.since; if (o.state !== 'working') { HL.snap.pending = []; HL.snap.turn = null; } liveRender(false); });
+  on('result', () => { if (HL.snap) HL.snap.turn = null; liveRender(false); });
   es.addEventListener('error', () => { if (HL.es === es && es.readyState === EventSource.CLOSED) setTimeout(() => { if (HL.es === es && !document.hidden) { HL.name = null; liveStream(name); } }, 2000); });
 }
 const liveOf = name => HL.name === name && HL.snap ? HL.snap : null;
-function liveKey(name) { const l = liveOf(name); return l ? [l.state, l.turn ? 1 : 0, l.pending.map(x => x.rid).join(','), l.error || ''].join('/') : ''; }
+const turnAt = lv => !lv ? 0 : lv.state === 'working' && lv.since ? lv.since : lv.turn ? lv.turn.startedAt : 0;
+const waitingIn = lv => turnAt(lv) ? (lv.inbox || []).filter(m => m.at > turnAt(lv) + 1500) : [];
+function liveKey(name) { const l = liveOf(name); return l ? [l.state, l.turn ? 1 : 0, l.pending.map(x => x.rid).join(','), l.error || '', (l.inbox || []).map(x => x.id).join(',')].join('/') : ''; }
 function paintLive() {
   if (HL.timer) return;
   HL.timer = setTimeout(() => {
-    HL.timer = 0; const pane = $('#term-chat'); const el = pane && pane.dataset.name === HL.name && pane.querySelector('.turn.live');
-    if (el && el.querySelector('.ltext')) fillLive(el, HL.snap && HL.snap.turn); else renderChatPane(false);
+    HL.timer = 0; const els = [...document.querySelectorAll('[data-chat] .turn.live')].filter(el => el.closest('[data-chat]').dataset.chat === HL.name && el.querySelector('.ltext'));
+    if (els.length) for (const el of els) fillLive(el, HL.snap && HL.snap.turn); else liveRender(false);
   }, 80);
 }
 function fillLive(el, turn) {
@@ -597,9 +611,10 @@ function renderTermPanel(force) {
     !isChatS && cl && cl.hooked && cl.sessionId ? h('button', { class: 'btn sm', title: 'continue this conversation as a chat — same tmux session, same conversation (only when Claude is idle)', onclick: () => switchSession(TERM.active, 'chat') }, ico('chat', 13), h('span', { class: 'desk' }, 'Continue in chat')) : null,
     ...feat('termBar', TERM.active),
     actProj ? h('button', { class: 'btn sm ghost projbtn', title: 'project details — changes, files, logs, branches, docker', onclick: () => openDrawer(actProj.id, actDirty ? 'changes' : 'overview') }, ico('folder', 14), h('span', { class: 'desk' }, 'Project'), actDirty ? h('span', { class: 'pill warn' }, '± ' + actDirty) : null) : null,
+    ...(cl ? feat('chatBar', TERM.active) : []),
     cl ? ctxMeter(TERM.active, cl) : null,
     muted ? h('button', { class: 'btn sm ghost icon desk tmuted', title: 'notifications muted — click to unmute', onclick: () => api('claude-mute', { session: TERM.active, muted: false }).then(() => toast('unmuted')).catch(e => toast(e.message, 'err')) }, ico('bellOff', 15)) : null,
-    h('button', { class: 'btn sm ghost icon tmore', title: 'session options — new chat, compact, rename, move, kill…', onclick: ev => sessMenu(ev, TERM.active) }, ico('dots', 18)),
+    h('button', { class: 'btn sm tmore', title: 'session options — new chat, compact, rename, move, kill…', onclick: ev => sessMenu(ev, TERM.active) }, ico('sliders', 15), h('span', { class: 'desk' }, 'Options'), ico('chevronDown', 13)),
     h('button', { class: 'btn sm ghost mob', title: 'back to dashboard (sessions keep running)', onclick: closeTermPanel }, ico('back', 15)));
   else barAdd(h('span', { class: 'dim' }, 'Pick a session.'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost mob', onclick: closeTermPanel }, ico('back', 15)));
 }
@@ -882,7 +897,7 @@ async function killSession(name, label) {
 const fmtTok = n => n >= 1e6 ? (Math.round(n / 1e5) / 10).toString().replace(/\.0$/, '') + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'k' : String(n);
 const ctxPct = c => c && c.window ? Math.min(100, Math.round(c.used / c.window * 100)) : null;
 const ctxLvl = p => p == null ? '' : p >= 80 ? 'hot' : p >= 50 ? 'warn' : 'ok';
-function ring(pct, size = 18) {
+function ctxRing(pct, size = 18) {
   const ns = 'http://www.w3.org/2000/svg'; const e = document.createElementNS(ns, 'svg'); const r = 7; const C = 2 * Math.PI * r;
   e.setAttribute('viewBox', '0 0 18 18'); e.setAttribute('width', size); e.setAttribute('height', size); e.setAttribute('class', 'ring');
   e.innerHTML = `<circle cx="9" cy="9" r="${r}" class="rg-bg"/><circle cx="9" cy="9" r="${r}" class="rg-fg" stroke-dasharray="${(C * Math.max(pct, 2) / 100).toFixed(2)} ${C.toFixed(2)}" transform="rotate(-90 9 9)"/>`;
@@ -891,7 +906,7 @@ function ring(pct, size = 18) {
 function ctxMeter(name, cl) {
   const c = cl && cl.ctx; if (!c || !c.used) return null; const p = ctxPct(c);
   return h('button', { class: 'ctxm ' + ctxLvl(p), title: `Context: ${c.used.toLocaleString()} of ${c.window.toLocaleString()} tokens (${p}%)\nClick to compact — Claude summarises the conversation and continues with a smaller context.`, onclick: () => compactSession(name) },
-    ring(p), h('b', null, fmtTok(c.used)), h('span', { class: 'of' }, '/ ' + fmtTok(c.window)));
+    ctxRing(p), h('b', null, fmtTok(c.used)), h('span', { class: 'of' }, '/ ' + fmtTok(c.window)));
 }
 const canCompact = cl => !!cl && ['idle', 'needs-you'].includes(cl.state) && (cl.mode === 'chat' || !cl.draft);
 async function compactSession(name) {
@@ -907,6 +922,31 @@ async function compactSession(name) {
 function newChatHere(name) {
   if (!FEAT.session) return newTerminalModal();
   FEAT.session.open('new', '', { here: name });
+}
+const MODEL_OPTS = [['opus', 'Opus'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku'], ['fable', 'Fable'], ['default', 'Default']];
+const EFFORT_OPTS = ['low', 'medium', 'high', 'xhigh', 'max'].map(e => [e, e]);
+const modelAlias = id => { const m = String(id || '').match(/opus|sonnet|haiku|fable/i); return m ? m[0].toLowerCase() : null; };
+const canSwitchModel = cl => !!cl && (cl.mode === 'chat' || canCompact(cl));
+const MODEL_SUB = { opus: 'deep work', sonnet: 'balanced, faster', haiku: 'quick and cheap', fable: 'frontier', default: 'account default' };
+const effortBar = lvl => { const i = EFFORT_OPTS.findIndex(([v]) => v === lvl); return h('span', { class: 'ebar' }, EFFORT_OPTS.map((_, k) => h('i', { class: k <= i ? 'on' : '' }))); };
+function modelPicker(name, cl) {
+  const chat = cl.mode === 'chat'; const ok = canSwitchModel(cl);
+  const why = cl.draft ? 'Clear the text typed in the terminal first' : 'Wait until Claude is idle, then change it';
+  const set = async (body, what) => {
+    try { await api('claude-model', { session: name, ...body }); toast(what, 'ok'); } catch (e) { toast('Change failed: ' + e.message, 'err'); }
+  };
+  const note = chat ? 'from the next message, the conversation stays' : 'typed into the terminal';
+  const open = (ev, items) => { if (!ok) return toast(why, 'err'); openMenu(ev, items); };
+  const curM = modelAlias(cl.model) || (cl.model ? null : 'default');
+  const modelMenu = ev => open(ev, [{ header: 'Model · ' + note },
+    ...MODEL_OPTS.map(([v, l]) => ({ label: l, sub: MODEL_SUB[v], icon: v === curM ? ico('check', 14) : '', cur: v === curM, onclick: () => v !== curM && set({ model: v }, 'model ' + l) }))]);
+  const effortMenu = ev => open(ev, [{ header: 'Effort · ' + note },
+    ...EFFORT_OPTS.map(([v]) => ({ el: h('div', { class: 'mi' + (v === cl.effort ? ' cur' : ''), onclick: () => { closeMenu(); if (v !== cl.effort) set({ effort: v }, 'effort ' + v); } },
+      h('span', { class: 'ico' }, v === cl.effort ? ico('check', 14) : ''), h('span', { class: 'k' }, v), effortBar(v)) }))]);
+  const tip = ok ? '' : ' — ' + why.toLowerCase();
+  return h('span', { class: 'mpick' + (ok ? '' : ' off') },
+    h('button', { class: 'mpill', title: 'model: ' + (cl.model || 'default') + tip, onclick: modelMenu }, ico('chip', 14), h('span', { class: 'ml' }, modelName(cl.model) || 'Default'), ico('chevronDown', 11)),
+    h('button', { class: 'mpill epill', title: 'effort: ' + (cl.effort || 'unknown') + tip, onclick: effortMenu }, ico('brain', 14), h('span', { class: 'ml' }, cl.effort || 'effort'), cl.effort ? effortBar(cl.effort) : null, ico('chevronDown', 11)));
 }
 function sessMenu(ev, name) {
   const sess = S.runtime.sessions.find(s => s.name === name); const cl = sess && sess.claude; const chat = cl && cl.mode === 'chat';
@@ -1226,6 +1266,9 @@ function renderMain() {
 
 // ---------- menus ----------
 function openMenu(ev, items) {
+  const anchor = ev.currentTarget;
+  if (anchor && anchor === UI.menuShut && Date.now() - UI.menuShutAt < 700) { UI.menuShut = null; return; }
+  UI.menuAnchor = anchor;
   const m = $('#menu'); m.innerHTML = ''; m.classList.remove('hidden'); UI.menuOpen = true;
   for (const it of items) {
     if (it === 'sep') { m.append(h('div', { class: 'sep' })); continue; }
@@ -1236,7 +1279,7 @@ function openMenu(ev, items) {
   const r = ev.currentTarget.getBoundingClientRect(); m.style.left = Math.min(r.left, innerWidth - m.offsetWidth - 12) + 'px'; m.style.top = (r.bottom + 6 + m.offsetHeight > innerHeight ? r.top - m.offsetHeight - 6 : r.bottom + 6) + 'px';
   setTimeout(() => document.addEventListener('mousedown', onDocDown, { once: true }), 0);
 }
-function onDocDown(e) { if (!$('#menu').contains(e.target)) closeMenu(); else setTimeout(() => document.addEventListener('mousedown', onDocDown, { once: true }), 0); }
+function onDocDown(e) { if (!$('#menu').contains(e.target)) { if (UI.menuAnchor && UI.menuAnchor.contains(e.target)) { UI.menuShut = UI.menuAnchor; UI.menuShutAt = Date.now(); } closeMenu(); } else setTimeout(() => document.addEventListener('mousedown', onDocDown, { once: true }), 0); }
 function closeMenu() { $('#menu').classList.add('hidden'); UI.menuOpen = false; render(); }
 const KIND_ICON = { serve: '▶', build: '⚒', check: '✓', install: '⇩', compose: '🐳', task: '·', custom: '★' };
 function cmdMenu(ev, p) {
@@ -1294,6 +1337,7 @@ function openSession(name, tab = 'transcript') {
 }
 async function renderSessionDrawer(full = true) {
   const d = $('#drawer'); const name = SESS.name; if (!name) return; const s = S.runtime.sessions.find(x => x.name === name); const cl = s?.claude || {};
+  liveStream(liveWanted());
   if (!full) { // poll: only the conversation body, only if the transcript changed
     const body = d.querySelector('.db.sess'); if (!body || SESS.tab !== 'transcript' || SESS.inflight) return;
     const req = SESS.req = (SESS.req || 0) + 1; SESS.inflight = req;
@@ -1302,7 +1346,7 @@ async function renderSessionDrawer(full = true) {
     if (req !== SESS.req || SESS.name !== name) return;
     chatOffline(body, !t); if (!t) return;
     if (document.body.classList.contains('recording')) return;   // same as the chat pane: not while recording
-    const key = [name, t.sig, t.total, cl.state, cl.lastTool, SESS.n, (PENDING[name] || []).length, queuedKey(name), (cl.status || '').split(' (')[0], t.pending || '', menuKey(cl.menu)].join(':'); if (SESS.key === key) { const st = body.querySelector('.ag-status'); if (st && cl.status) st.textContent = cl.status; return; } SESS.key = key;
+    const key = [name, t.sig, t.total, cl.state, cl.lastTool, SESS.n, (PENDING[name] || []).length, queuedKey(name), (cl.status || '').split(' (')[0], t.pending || '', menuKey(cl.menu), liveKey(name)].join(':'); if (SESS.key === key) { const st = body.querySelector('.ag-status'); if (st && cl.status) st.textContent = cl.status; return; } SESS.key = key;
     renderConversation(body, name, t, { n: SESS.n, more: () => { SESS.n = Math.min(200, SESS.n * 2); renderSessionDrawer(); }, refresh: () => renderSessionDrawer(false) });
     return;
   }
@@ -1332,6 +1376,7 @@ async function renderSessionDrawer(full = true) {
 // The conversation itself: turns, tool calls, and a reply box that grows with the text and stays above the keyboard.
 // `t` is the /api/transcript payload. Draft text in the reply box survives re-renders.
 const queuedKey = name => (S.claude?.schedule || []).filter(j => j.session === name && j.whenFree && j.state === 'waiting').map(j => j.id).join(',');   // re-render the chat when its queue changes
+const followUp = () => FEAT.queue ? FEAT.queue.followUp() : 'steer';
 const PENDING = {};   // name -> [{ text, ts }] messages sent from here that the transcript hasn't shown yet
 const menuKey = mn => mn ? mn.options.join('|') + '#' + mn.cur : '';
 const menuLabel = l => l.replace(/^\d+\.\s+/, '');
@@ -1370,7 +1415,7 @@ function convTurn(turn, name) {
     if (turn.role === 'event') return h('div', { class: 'tevent' + (turn.status === 'failed' || turn.status === 'killed' ? ' bad' : '') }, h('span', { class: 'ic' }, ico(turn.status === 'interrupted' ? 'stop' : turn.status === 'compacted' ? 'shrink' : turn.status === 'completed' ? 'check' : turn.status === 'failed' || turn.status === 'killed' ? 'x' : 'gear', 13)), h('span', { class: 'tx' }, turn.status === 'interrupted' ? 'interrupted' : turn.text), turn.ts ? h('span', { class: 'dim mono' }, new Date(turn.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) : null);
     if (turn.role === 'shell') return h('div', { class: 'turn user shell' }, h('div', { class: 'who' }, gl('❯ you · shell'), hhmm(turn.ts)), h('pre', { class: 'mcode small' }, '! ' + turn.text), turn.out ? h('details', { class: 'ttools' }, h('summary', null, 'output'), h('pre', { class: 'mcode small' }, turn.out)) : null);
     if (turn.role === 'assistant') return assistantTurn(turn, { session: name });
-    return h('div', { class: 'turn ' + turn.role + (turn.queued ? ' midturn' : '') }, h('div', { class: 'who' }, gl('❯ you'), hhmm(turn.ts), turn.queued ? h('span', { class: 'dim mono' }, ' · sent while Claude was working') : null),
+    return h('div', { class: 'turn ' + turn.role + (turn.queued ? ' midturn' : '') }, h('div', { class: 'who' }, gl('❯ you'), hhmm(turn.ts), turn.queued ? h('span', { class: 'steer', title: 'Sent while Claude was working — it read this mid-turn and kept going, so the answer may come later in the turn' }, ico('redo', 12), ' Steer') : null),
       turn.text ? h('div', { class: 'ttext', html: mdLite(turn.text) }) : null);
 }
 function syncChildren(parent, items) {
@@ -1388,7 +1433,8 @@ function renderConversation(box, name, t, o) {
   const hadFocus = document.activeElement && document.activeElement.classList.contains('creply');
   // drop local echoes once the transcript has them (or after a minute)
   const lastUser = [...t.turns].reverse().find(x => x.role === 'user');
-  PENDING[name] = (PENDING[name] || []).filter(pm => Date.now() - pm.ts < 60000 && !(lastUser && lastUser.text.trim() === pm.text.trim() && (lastUser.ts || 0) >= pm.ts - 5000));
+  const lv0 = (claudeOf(name) || {}).mode === 'chat' ? liveOf(name) : null;
+  PENDING[name] = (PENDING[name] || []).filter(pm => !(pm.id && HL.name === name && HL.seen.has(pm.id)) && Date.now() - pm.ts < (pm.id && lv0 ? 300000 : 60000) && !(lastUser && lastUser.text.trim() === pm.text.trim() && (lastUser.ts || 0) >= pm.ts - 5000) && !(lv0 && (lv0.inbox || []).some(m => m.text.trim() === pm.text.trim() && m.at >= pm.ts - 5000)));
   if (!same) box.innerHTML = '';
   const scroller = same ? box.querySelector('.cscroll') : h('div', { class: 'cscroll' });
   const conv = same ? scroller.querySelector('.conv') : h('div', { class: 'conv' });
@@ -1397,7 +1443,9 @@ function renderConversation(box, name, t, o) {
     ...feat('chatBar', name), h('button', { class: 'btn sm', onclick: o.refresh }, gl('↻')));
   const old = new Map(); for (const el of conv.children) if (el.dataset.h) old.set(el.dataset.h, el);
   const items = [];
-  const lv = (claudeOf(name) || {}).mode === 'chat' ? liveOf(name) : null;
+  const lv = lv0;
+  const inbox = lv && !lv.stale ? lv.inbox || [] : [];
+  const starts = m => !turnAt(lv) || m.at <= turnAt(lv) + 1500;
   const shownTurns = lv && lv.turn ? t.turns.filter(x => !(x.role === 'assistant' && (x.ts || 0) >= lv.turn.startedAt - 3000)) : t.turns;
   for (const turn of shownTurns) { let el = turn.h && old.get(turn.h); if (!el) { el = convTurn(turn, name); if (turn.h) el.dataset.h = turn.h; } el._turn = turn; items.push(el); }
   if (!t.turns.length && !(PENDING[name] || []).length && !(claudeOf(name) || {}).menu) items.push(h('div', { class: 'dim', style: 'padding:24px 4px' }, 'New conversation — nothing said yet. Type your first message below.'));
@@ -1405,21 +1453,16 @@ function renderConversation(box, name, t, o) {
   // busy: hooks / pane say so, or the transcript ends in a tool call that hasn't returned yet (Claude is running it)
   const busy = lv ? lv.state === 'working' || !!lv.turn : cl.state === 'working' || cl.state === 'background' || !!t.pending; const justSent = (PENDING[name] || []).length > 0;
   const jobs = (S.claude?.schedule || []).filter(j => j.session === name && j.state !== 'done' && j.state !== 'failed');
-  const compKey = [name, cl.state, menuKey(cl.menu), busy, justSent, jobs.map(j => j.id + j.state).join(',')].join('|');
+  const compKey = [name, cl.state, menuKey(cl.menu), cl.model, cl.effort, canSwitchModel(cl), busy, justSent, jobs.map(j => j.id + j.state).join(','), followUp()].join('|');
   const keptComp = same && box.querySelector('.cbox2'); const C = keptComp && keptComp.dataset.k === compKey ? keptComp._c : composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDraft, compKey);
-  // "send when free" messages waiting in the queue: shown as your next turn, with Send now / Cancel
   const queued = (S.claude?.schedule || []).filter(j => j.session === name && j.whenFree && j.state === 'waiting');
-  for (const j of queued) items.push(h('div', { class: 'turn user queued' },
-    h('div', { class: 'who' }, gl('❯ you'), h('span', { class: 'dim mono' }, ' ⏳ queued — goes out when Claude is free'), h('span', { class: 'sp' }),
-      h('button', { class: 'btn sm ghost', title: 'send it right now', onclick: () => api('schedule-now', { id: j.id }).then(() => { toast('sent'); setTimeout(o.refresh, 800); }).catch(e => toast(e.message, 'err')) }, 'Send now'),
-      h('button', { class: 'btn sm ghost danger', title: 'remove from the queue (the text goes back into the box)', onclick: () => api('schedule-remove', { id: j.id }).then(() => { if (!C.ta.value.trim()) { C.ta.value = j.prompts.join('\n\n'); C.grow(); } toast('removed from the queue'); }) }, 'Cancel')),
-    h('div', { class: 'ttext' }, j.prompts.join('\n\n'))));
+  for (const m of inbox.filter(starts)) if (!(lastUser && lastUser.text.trim() === m.text.trim() && (lastUser.ts || 0) >= m.at - 5000)) items.push(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, gl('❯ you'), hhmm(m.at), h('span', { class: 'dim mono' }, ' · sent')), h('div', { class: 'ttext' }, m.text)));
   for (const pm of PENDING[name] || []) items.push(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, gl('❯ you'), h('span', { class: 'dim mono' }, ' sent')), h('div', { class: 'ttext' }, pm.text)));
   // Feedback right away: a "working" turn appears the moment you send (before the hooks confirm it), with a Stop that
   // interrupts Claude and puts your text back in the box. Esc in the box does the same.
   const since = (lv && ((lv.turn && lv.turn.startedAt) || (lv.state === 'working' && lv.since))) || t.since || (justSent ? PENDING[name][0].ts : null);
   let liveEl = null;
-  if (busy || justSent) items.push(liveEl = h('div', { class: 'turn assistant live' }, h('div', { class: 'who' }, gl('✦ claude'), h('span', { class: 'dim mono' }, cl.state === 'background' ? ' waiting on background agents' : busy ? ' working' : ' starting'), since ? h('span', { class: 'dim mono' }, ' · ', h('span', { class: 'wtimer', 'data-since': since }, elapsedTxt(since))) : h('span', { class: 'dim mono' }, '…'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost stopb', title: 'interrupt (Esc) — your message goes back into the box', onclick: C.stop }, gl('■ Stop'))), h('div', { class: 'ag-now' }, h('span', { class: 'spin' }), h('span', { class: 'mono' }, cl.state === 'background' ? bgText(cl.bg) : busy ? (cl.state === 'working' ? cl.lastTool || t.pending || 'thinking…' : t.pending || cl.lastTool || 'working…') : 'sending to Claude…')),
+  if (busy || justSent) items.push(liveEl = h('div', { class: 'turn assistant live' }, h('div', { class: 'who' }, gl('✦ claude'), h('span', { class: 'dim mono' }, cl.state === 'background' ? ' waiting on background agents' : busy ? ' working' : ' starting'), since ? h('span', { class: 'dim mono' }, ' · ', h('span', { class: 'wtimer', 'data-since': since }, elapsedTxt(since))) : h('span', { class: 'dim mono' }, '…'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost stopb', title: cl.mode === 'chat' ? 'interrupt (Esc) — messages already sent stay with Claude and run next' : 'interrupt (Esc) — your message goes back into the box', onclick: C.stop }, gl('■ Stop'))), h('div', { class: 'ag-now' }, h('span', { class: 'spin' }), h('span', { class: 'mono' }, cl.state === 'background' ? bgText(cl.bg) : busy ? (cl.state === 'working' ? cl.lastTool || t.pending || 'thinking…' : t.pending || cl.lastTool || 'working…') : 'sending to Claude…')),
     cl.state === 'working' && cl.status ? h('div', { class: 'ag-status mono' }, cl.status) : null));   // Claude's own status line: "✻ Cooking… (2m 10s · ↓ 3.1k tokens)"
   if (liveEl && lv) { liveEl.insertBefore(h('div', { class: 'ltools' }), liveEl.children[1]); liveEl.insertBefore(h('div', { class: 'ttext ltext hidden' }), liveEl.children[2]); fillLive(liveEl, lv.turn); }
   if (lv && lv.error && !busy) items.push(h('div', { class: 'turn assistant' }, h('div', { class: 'who' }, gl('⚠ chat runner')), h('div', { class: 'mono dim' }, lv.error)));
@@ -1432,6 +1475,8 @@ function renderConversation(box, name, t, o) {
   else { scroller.append(bar, conv); dropZone(box, scroller); }
   if (!keptComp) box.append(scroller, C.el);
   else if (keptComp !== C.el) keptComp.replaceWith(C.el);
+  const stk = FEAT.queue ? FEAT.queue.stack(name, { waiting: inbox.filter(m => !starts(m)), jobs: queued, C, refresh: o.refresh }) : null, oldStk = box.querySelector(':scope > .qstack');
+  if (stk) { if (oldStk) oldStk.replaceWith(stk); else C.el.before(stk); } else if (oldStk) oldStk.remove();
   box.classList.remove('cdrop');
   if (C.el !== keptComp) { C.grow(); if (hadFocus) C.ta.focus({ preventScroll: true }); }
   scroller.scrollTop = atBottom ? scroller.scrollHeight : prevTop;
@@ -1444,20 +1489,26 @@ function dropZone(box, el) {
   el.addEventListener('drop', ev => { if (!hasFiles(ev)) return; ev.preventDefault(); box.classList.remove('cdrop'); const c = box.querySelector('.cbox2'); if (c && c._c) c._c.attachFiles(ev.dataTransfer.files); });
 }
 function composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDraft, compKey) {
-  const stop = async () => { const last = (PENDING[name] || []).slice(-1)[0]; try { await api('key', { session: name, key: 'esc' }); } catch {} PENDING[name] = []; if (last && !ta.value.trim()) { ta.value = last.text; grow(); } ta.focus(); toast('stopped — your text is back in the box'); setTimeout(o.refresh, 600); };
+  const stop = async () => { const chat = cl.mode === 'chat', last = chat ? null : (PENDING[name] || []).slice(-1)[0]; const waiting = chat ? waitingIn(liveOf(name)).length : 0; try { await api('key', { session: name, key: 'esc' }); } catch {} if (!chat) PENDING[name] = []; if (last && !ta.value.trim()) { ta.value = last.text; grow(); } ta.focus(); toast(waiting ? `stopped — ${waiting} waiting message${waiting > 1 ? 's go' : ' goes'} to Claude next` : last ? 'stopped — your text is back in the box' : 'stopped'); setTimeout(o.refresh, 600); };
   // reply box: textarea that grows to 6 lines; Enter sends, Shift+Enter = newline; Esc button interrupts Claude
   const ta = h('textarea', { class: 'creply', rows: 1, placeholder: cl.menu ? 'pick an option above first' : cl.mode === 'chat' && cl.state === 'permission' ? 'answer above, or type a message…' : cl.state === 'permission' ? 'y / n, or type…' : 'Message Claude…', title: 'Enter sends · Shift+Enter = new line', autocomplete: 'off', autocapitalize: 'sentences', spellcheck: true });
   ta.value = prevDraft;
   const grow = () => { ta.style.height = '44px'; if (ta.value) ta.style.height = Math.min(Math.max(44, ta.scrollHeight), 6 * 24 + 20) + 'px'; saveDraft(name, ta.value); };   // every change goes through grow() -> the draft is saved
   const sendText = async (v) => { (PENDING[name] = PENDING[name] || []).push({ text: v, ts: Date.now() }); conv.append(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, gl('❯ you'), h('span', { class: 'dim mono' }, ' sending…')), h('div', { class: 'ttext' }, v))); scroller.scrollTop = scroller.scrollHeight; try { await api('send', { session: name, text: v }); } catch (e) { toast(e.message, 'err'); } setTimeout(o.refresh, 700); setTimeout(o.refresh, 2500); };
   const send = async () => { const v = ta.value.trim(); if (!v) return; if ((claudeOf(name) || {}).menu) { toast('Claude is asking something — pick an option above first', 'err'); return; } ta.value = ''; grow();
-    (PENDING[name] = PENDING[name] || []).push({ text: v, ts: Date.now() });
+    const pm = { text: v, ts: Date.now() }; (PENDING[name] = PENDING[name] || []).push(pm);
     conv.append(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, gl('❯ you'), h('span', { class: 'dim mono' }, ' sending…')), h('div', { class: 'ttext' }, v))); scroller.scrollTop = scroller.scrollHeight;
-    try { await api('send', { session: name, text: v }); } catch (e) { toast(e.message, 'err'); PENDING[name] = PENDING[name].filter(x => x.text !== v); ta.value = v; grow(); }
+    try { const r = await api('send', { session: name, text: v }); if (r && r.id) pm.id = r.id; } catch (e) { toast(e.message, 'err'); PENDING[name] = PENDING[name].filter(x => x !== pm); ta.value = v; grow(); }
     for (const ms of [400, 1200, 2500, 5000]) setTimeout(o.refresh, ms); };
   ta.addEventListener('input', grow);
-  ta.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); send(); } else if (ev.key === 'Escape' && (busy || justSent)) { ev.preventDefault(); stop(); } });
-  const sendBtn = h('button', { class: 'btn primary csend', title: 'send (Enter)', onclick: send }, ico('send', 16));
+  const busyNow = cl.state === 'working' || cl.state === 'background' || cl.state === 'permission';
+  const queue = async () => { const v = ta.value.trim(); if (!v) { toast('type the message first'); ta.focus(); return; } ta.value = ''; grow();
+    try { await api('schedule', { session: name, at: Date.now(), prompts: [v], whenFree: true }); toast('queued — goes out when Claude is free', 'ok'); } catch (e) { ta.value = v; grow(); toast(e.message, 'err'); } };
+  const pick = cl.mode === 'chat' && (busy || busyNow) ? followUp() : null;
+  const sj = jobs.filter(j => !(j.whenFree && j.state === 'waiting'));
+  const first = pick === 'queue' ? queue : send, second = pick === 'queue' ? send : queue;
+  ta.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); (pick && ev.altKey ? second : first)(); } else if (ev.key === 'Escape' && (busy || justSent)) { ev.preventDefault(); stop(); } });
+  const sendBtn = h('button', { class: 'btn primary csend', title: pick === 'queue' ? 'queue it for after this turn (Enter)' : pick ? 'send now — Claude reads it at its next step (Enter)' : 'send (Enter)', onclick: first }, ico('send', 16));
   // 📎 attach: any file (photo / screenshot downscaled, everything else as-is) -> ~/dev/.pasted -> its path goes into the message (Claude reads it)
   const fileIn = h('input', { type: 'file', multiple: true, style: 'display:none' });
   const attachFiles = async files => { files = [...files].filter(Boolean); if (!files.length) return;
@@ -1470,17 +1521,18 @@ function composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDr
   const mic = voiceButton(ta, name);
   const clock = h('button', { class: 'btn sm ghost qk', title: 'schedule this message for later (or a chain of messages)', onclick: () => scheduleDialog(name, ta.value) }, ico('clock', 15));
   const keys = h('div', { class: 'ckeys' }, attach, mic, clock, fileIn, ...feat('composerKeys', name),
-    jobs.length ? h('span', { class: 'sjobs' }, jobs.map(j => h('span', { class: 'sjob', title: j.prompts.join('\n\n') }, ico('clock', 12), ' ', j.whenFree ? 'when free' : new Date(j.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), j.prompts.length > 1 ? ` ×${j.prompts.length}` : '', j.state === 'running' || j.state === 'sent' ? ' · ' + j.state : '', h('button', { class: 'x', title: 'remove', onclick: () => api('schedule-remove', { id: j.id }) }, ico('x', 11))))) : null,
-    cl.state === 'working' || cl.state === 'background' ? h('button', { class: 'btn sm ghost qk', title: 'interrupt Claude (Escape)', onclick: () => api('key', { session: name, key: 'esc' }).then(() => toast('Esc sent')) }, 'Esc') : null,
+    sj.length ? h('span', { class: 'sjobs' }, sj.map(j => h('span', { class: 'sjob', title: j.prompts.join('\n\n') }, ico('clock', 12), ' ', j.whenFree ? 'when free' : new Date(j.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), j.prompts.length > 1 ? ` ×${j.prompts.length}` : '', j.state === 'running' || j.state === 'sent' ? ' · ' + j.state : '', h('button', { class: 'x', title: 'remove', onclick: () => api('schedule-remove', { id: j.id }) }, ico('x', 11))))) : null,
+    cl.state === 'working' || cl.state === 'background' ? h('button', { class: 'btn sm ghost qk esck', title: 'interrupt Claude (Escape)', onclick: () => api('key', { session: name, key: 'esc' }).then(() => toast('Esc sent')) }, 'Esc') : null,
     cl.state === 'permission' && !cl.menu && cl.mode !== 'chat' ? ['y', 'n'].map(k => h('button', { class: 'btn sm qk ' + (k === 'y' ? 'yes' : 'no'), onclick: () => api('send', { session: name, text: k, enter: false }) }, k)) : null,
-    cl.mode === 'chat' ? null : h('button', { class: 'btn sm ghost qk', title: 'send Ctrl-C', onclick: () => { if (confirm('Send Ctrl-C?')) api('key', { session: name, key: 'c-c' }); } }, '^C'));
+    cl.mode === 'chat' ? null : h('button', { class: 'btn sm ghost qk', title: 'send Ctrl-C', onclick: () => { if (confirm('Send Ctrl-C?')) api('key', { session: name, key: 'c-c' }); } }, '^C'),
+    cl.state ? modelPicker(name, cl) : null);
   // Claude busy (working / waiting on background agents / asking permission): ⏳ queues the message instead of typing
   // it in now; the server sends it the moment the session is free
-  const busyNow = cl.state === 'working' || cl.state === 'background' || cl.state === 'permission';
-  const queue = async () => { const v = ta.value.trim(); if (!v) { toast('type the message first'); ta.focus(); return; } ta.value = ''; grow();
-    try { await api('schedule', { session: name, at: Date.now(), prompts: [v], whenFree: true }); toast('queued — goes out when Claude is free', 'ok'); } catch (e) { ta.value = v; grow(); toast(e.message, 'err'); } };
-  const queueBtn = busyNow ? h('button', { class: 'btn cqueue', title: 'send when Claude is free — queued, goes out by itself the moment this session finishes', onclick: queue }, gl('⏳')) : null;
-  const el = h('div', { class: 'cbox2', 'data-k': compKey }, keys, h('div', { class: 'crow' }, ta, queueBtn, sendBtn));
+  const queueBtn = pick === 'queue' ? h('button', { class: 'btn cqueue', title: 'send now — Claude reads it at its next step (Alt+Enter)', onclick: second }, ico('zap', 18))
+    : busyNow || pick ? h('button', { class: 'btn cqueue', title: 'send when Claude is free — queued, goes out by itself the moment this turn is over' + (pick ? ' (Alt+Enter)' : ''), onclick: queue }, gl('⏳')) : null;
+  const hint = pick ? h('div', { class: 'chint' }, 'Claude is working — ', IS_PHONE ? (pick === 'queue' ? 'send: after this turn · ⚡ now' : 'send: now · ⏳ after this turn')
+    : pick === 'queue' ? 'Enter: after this turn · Alt+Enter: now' : 'Enter: now, read at its next step · Alt+Enter: after this turn') : null;
+  const el = h('div', { class: 'cbox2', 'data-k': compKey }, keys, hint, h('div', { class: 'crow' }, ta, queueBtn, sendBtn));
   el._c = { el, ta, grow, stop, attachFiles };
   dropZone(box, el);
   return el._c;
@@ -1905,7 +1957,7 @@ window.addEventListener('popstate', () => {
 });
 function openDrawer(id, tab = 'overview', logTarget = null) { const was = UI.drawer; UI.drawer = id; UI.tab = tab; UI.logTarget = logTarget; $('#drawer').classList.add('open'); $('#scrim').classList.remove('hidden'); renderDrawer(true); if (!was) pushLayer('drawer'); }
 const CMSG = new Map();
-function closeDrawer(pop = true) { if (!UI.drawer) return; UI.drawer = null; fitTermPanel(); $('#drawer').classList.remove('open'); $('#scrim').classList.add('hidden'); stopLog(); FILES.editing = false; if (pop) popLayer(); }
+function closeDrawer(pop = true) { if (!UI.drawer) return; UI.drawer = null; liveStream(liveWanted()); fitTermPanel(); $('#drawer').classList.remove('open'); $('#scrim').classList.add('hidden'); stopLog(); FILES.editing = false; if (pop) popLayer(); }
 let drawerKey = '';
 function renderDrawer(force) {
   if (String(UI.drawer).startsWith('session:')) { // live: re-read when that session got a new hook event (Claude replied / you typed)
@@ -2305,6 +2357,7 @@ function settingsModal() {
         row('Sleep', 'suspend the server now — it wakes itself ' + (S.host.nextWake ? 'on ' + new Date(S.host.nextWake).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + ' (Mon–Fri 07:00)' : 'at 07:00 on weekdays'), h('button', { class: 'btn sm', onclick: sleepModal }, gl('☾ Sleep…')))) : null,
       sect('Sessions',
         row('Auto-restore after reboot', 'claude --resume in the same folders as soon as the dashboard starts', sw(!!s.autoRestore, { id: 'set-autorestore' })),
+        row('Messages while Claude works', 'chat sessions, this device · ' + (IS_PHONE ? 'the send button does this, the second button the other' : 'Enter does this, Alt+Enter the other'), h('span', { class: 'seg' }, [['steer', 'Send now'], ['queue', 'After the turn']].map(([v, l]) => h('button', { class: 'segb' + (followUp() === v ? ' on' : ''), title: v === 'steer' ? 'goes into the running turn — Claude reads it at its next step' : 'waits in the queue and goes out when the turn is over', onclick: ev => { FEAT.queue?.setFollowUp(v); for (const b of ev.currentTarget.parentElement.children) b.classList.toggle('on', b === ev.currentTarget); renderChatPane(true); } }, l)))),
         row('Move chats to a new Claude Code', 'when a new version passes the start check, chat sessions restart on it one by one (idle now, busy ones after their turn)', sw(s.chatAutoUpgrade !== false, { id: 'set-chatupgrade' }))),
       sect('Claude accounts',
         row(acct('personal') + ' (~/.claude)', 'name shown on cards and badges', h('input', { class: 'txt', value: s.accountLabels?.personal ?? 'Personal', 'data-acct': 'personal' })),

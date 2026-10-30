@@ -259,6 +259,25 @@ test('restart ends the turn, and a message sent during the restart goes to the n
   assert.strictEqual(a.length, 2); assert.ok(a[1].argv.includes('--resume'));
 });
 
+test('model and effort switch live, carry over a restart as --model / --effort, and unknown values are rejected', async t => {
+  const r = runner(t); const k = await client(t, r.sock);
+  await k.op({ op: 'send', text: 'hi' }); await k.until(e => e.ev === 'result');
+  await k.until(e => e.ev === 'snapshot' && e.model === 'fake-model' && e.effort === 'high');
+  assert.strictEqual((await k.op({ op: 'model', model: 'sonnet' })).ev, 'ack');
+  assert.strictEqual((await k.op({ op: 'effort', effort: 'max' })).ev, 'ack');
+  await k.until(e => e.ev === 'snapshot' && e.model === 'claude-sonnet-9' && e.effort === 'max');
+  assert.strictEqual((await k.op({ op: 'model', model: 'gpt' })).ev, 'error');
+  assert.strictEqual((await k.op({ op: 'effort', effort: 'turbo' })).ev, 'error');
+  assert.match(r.log(), /model sonnet/); assert.match(r.log(), /effort max/);
+  k.clear();
+  await k.op({ op: 'restart' }); await k.op({ op: 'send', text: 'again' });
+  await k.until(e => e.ev === 'result' && e.subtype === 'success');
+  const a = r.args().filter(x => x.argv);
+  assert.strictEqual(a.length, 2);
+  assert.deepStrictEqual(a[1].argv.slice(a[1].argv.indexOf('--model')), ['--model', 'sonnet', '--effort', 'max']);
+  await k.until(e => e.ev === 'snapshot' && e.model === 'claude-sonnet-9' && e.effort === 'max');
+});
+
 test('a claude binary that cannot be started ends in exited with an error, and the runner stays up', async t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bd-hl-'));
   const sock = path.join(dir, 's.sock');
@@ -420,4 +439,152 @@ test('--start fork forks the old conversation into the new id once, then resumes
 
   const bad = spawn(process.execPath, [RUNNER, '--sock', sock + 'b', '--cwd', dir, '--session-id', SID, '--start', 'fork', '--claude', FAKE], { stdio: 'ignore' });
   assert.strictEqual(await new Promise(r => bad.on('exit', r)), 2);
+});
+
+const logged = r => r.args().filter(x => x.argv).length;
+const inboxIds = k => k.evs.filter(e => e.ev === 'inbox').map(e => e.inbox.map(m => m.id).join(','));
+
+test('inbox: a send is acked with its id, waits in the inbox while claude works and leaves it when claude replays it', async t => {
+  const r = runner(t); const k = await client(t, r.sock);
+  const first = await k.op({ op: 'send', text: 'slow' });
+  assert.strictEqual(first.id, 'm-1');
+  await k.until(e => e.ev === 'tool' && e.id === 't1');
+  assert.deepStrictEqual(inboxIds(k).slice(0, 2), ['m-1', '']);
+  assert.ok(r.args()[0].argv.includes('--replay-user-messages'));
+  const ack = await k.op({ op: 'send', text: '  also this  ' });
+  assert.strictEqual(ack.id, 'm-2');
+  const waiting = await k.until(e => e.ev === 'inbox' && e.inbox.length === 1 && e.inbox[0].id === 'm-2');
+  assert.deepStrictEqual(Object.keys(waiting.inbox[0]).sort(), ['at', 'id', 'text']);
+  assert.strictEqual(waiting.inbox[0].text, '  also this  '); assert.ok(Math.abs(waiting.inbox[0].at - Date.now()) < 5000);
+  const k2 = await client(t, r.sock); k2.c.write('{"op":"hello"}\n');
+  const snap = await k2.until(e => e.ev === 'snapshot');
+  assert.deepStrictEqual(snap.inbox.map(m => m.id), ['m-2']);
+  await k.until(e => e.ev === 'result');
+  assert.deepStrictEqual(inboxIds(k).slice(-1), ['']);
+  assert.match(r.log(), /claude took in: also this/);
+});
+
+test('inbox: messages still waiting at an interrupt are replayed together as the next turn and leave the inbox', async t => {
+  const r = runner(t); const k = await client(t, r.sock);
+  await k.op({ op: 'send', text: 'hang' }); await k.until(e => e.ev === 'delta');
+  await k.op({ op: 'send', text: 'first' }); await k.op({ op: 'send', text: 'second' });
+  await k.until(e => e.ev === 'inbox' && e.inbox.map(m => m.id).join(',') === 'm-2,m-3');
+  k.clear();
+  await k.op({ op: 'interrupt' });
+  await k.until(e => e.ev === 'result' && e.reason === 'aborted_streaming');
+  await k.until(e => e.ev === 'inbox' && !e.inbox.length);
+  await k.until(e => e.ev === 'result' && e.subtype === 'success');
+  assert.strictEqual(k.text(), 'Echo: first\nsecond');
+  k.c.write('{"op":"hello"}\n');
+  assert.deepStrictEqual((await k.until(e => e.ev === 'snapshot')).inbox, []);
+});
+
+test('inbox: messages claude never took in are dropped and logged when claude exits', async t => {
+  const r = runner(t); const k = await client(t, r.sock);
+  await k.op({ op: 'send', text: 'die' }); await k.until(e => e.ev === 'delta');
+  await k.op({ op: 'send', text: 'lost one' });
+  await k.until(e => e.ev === 'inbox' && e.inbox.length === 1);
+  await k.until(e => e.ev === 'state' && e.state === 'exited');
+  await k.until(e => e.ev === 'inbox' && !e.inbox.length);
+  assert.match(r.log(), /not taken in \(claude exited\): lost one/);
+  k.clear(); await k.op({ op: 'send', text: 'back' }); await k.until(e => e.ev === 'result');
+  assert.strictEqual(k.text(), 'Echo: back');
+});
+
+test('inbox: a restart sends the waiting messages to the new claude under the same id', async t => {
+  const r = runner(t); const k = await client(t, r.sock);
+  await k.op({ op: 'send', text: 'hang' }); await k.until(e => e.ev === 'delta');
+  await k.op({ op: 'send', text: 'keep me' });
+  await k.until(e => e.ev === 'inbox' && e.inbox.length === 1);
+  k.clear();
+  await k.op({ op: 'restart' });
+  await k.until(e => e.ev === 'result' && e.subtype === 'success');
+  assert.strictEqual(k.text(), 'Echo: keep me');
+  assert.deepStrictEqual(inboxIds(k), ['']);
+  const a = r.args().filter(x => x.argv); assert.strictEqual(a.length, 2); assert.ok(a[1].argv.includes('--resume'));
+  assert.match(r.log(), /sending again 1 message claude had not taken in yet/);
+});
+
+test('inbox: a message sent during a restart waits in the inbox until the new claude takes it', async t => {
+  const r = runner(t); const k = await client(t, r.sock);
+  await k.op({ op: 'send', text: 'hang' }); await k.until(e => e.ev === 'delta');
+  await k.op({ op: 'restart' });
+  const ack = await k.op({ op: 'send', text: 'after' });
+  assert.ok(k.evs.some(e => e.ev === 'inbox' && e.inbox.some(m => m.id === ack.id)));
+  await k.until(e => e.ev === 'result' && e.subtype === 'success');
+  assert.deepStrictEqual(inboxIds(k).slice(-1), ['']);
+});
+
+test('inbox: the echo is matched by uuid, so two messages with the same text each leave once', async t => {
+  const r = runner(t, 'new', { BD_HL_SWEEP_MS: '60000' }); const k = await client(t, r.sock);
+  await k.op({ op: 'send', text: 'hang' }); await k.until(e => e.ev === 'delta');
+  await k.op({ op: 'send', text: 'same' }); await k.op({ op: 'send', text: 'same' });
+  await k.until(e => e.ev === 'inbox' && e.inbox.map(m => m.id).join(',') === 'm-2,m-3');
+  k.clear();
+  await k.op({ op: 'interrupt' });
+  await k.until(e => e.ev === 'result' && e.subtype === 'success');
+  assert.deepStrictEqual(inboxIds(k), ['m-3', '']);
+});
+
+test('inbox: a slash command whose echo text never matches leaves by uuid; without a uuid it is swept after the turn', async t => {
+  const r = runner(t, 'new', { BD_HL_SWEEP_MS: '60000' }); const k = await client(t, r.sock);
+  await k.op({ op: 'send', text: '/compact' });
+  await k.until(e => e.ev === 'result');
+  assert.deepStrictEqual(inboxIds(k), ['m-1', '']);
+  const r2 = runner(t, 'new', { FAKE_NO_UUID: '1', BD_HL_SWEEP_MS: '300' }); const k2 = await client(t, r2.sock);
+  await k2.op({ op: 'send', text: '/compact' });
+  await k2.until(e => e.ev === 'result');
+  assert.deepStrictEqual(inboxIds(k2), ['m-1']);
+  await k2.until(e => e.ev === 'inbox' && !e.inbox.length, 3000);
+  assert.match(r2.log(), /not taken in \(no echo from claude\): \/compact/);
+  await k2.op({ op: 'restart' });
+  for (let i = 0; i < 50 && logged(r2) < 2; i++) await new Promise(res => setTimeout(res, 20));
+  assert.strictEqual(logged(r2), 2);
+  assert.doesNotMatch(r2.log(), /sending again/);
+});
+
+test('inbox: a message claude ran without an echo is not sent again on restart; a newer one is, and the resumed claude only acks it', async t => {
+  const seen = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'bd-seen-')), 'seen');
+  const r = runner(t, 'new', { BD_HL_SWEEP_MS: '60000', FAKE_SEEN: seen }); const k = await client(t, r.sock);
+  await k.op({ op: 'send', text: 'noecho' }); await k.until(e => e.ev === 'result');
+  await k.op({ op: 'send', text: 'noecho-hang' }); await k.until(e => e.ev === 'delta' && e.text === 'Thin');
+  assert.deepStrictEqual(inboxIds(k).slice(-1), ['m-1,m-2']);
+  k.clear();
+  await k.op({ op: 'restart' });
+  await k.until(e => e.ev === 'inbox' && !e.inbox.length);
+  assert.match(r.log(), /not taken in \(no echo from claude\): noecho\x1b/);
+  assert.match(r.log(), /sending again 1 message/);
+  await new Promise(res => setTimeout(res, 200));
+  const k2 = await client(t, r.sock); k2.c.write('{"op":"hello"}\n');
+  const snap = await k2.until(e => e.ev === 'snapshot');
+  assert.strictEqual(snap.state, 'idle'); assert.strictEqual(snap.turn, null);
+  assert.ok(!k.evs.some(e => e.ev === 'delta'));
+});
+
+test('inbox: a merged echo with an unrelated message between its parts takes only its parts, with or without uuids', async t => {
+  for (const env of [{ FAKE_MERGED_ONLY: '1' }, { FAKE_MERGED_ONLY: '1', FAKE_NO_UUID: '1' }]) {
+    const r = runner(t, 'new', { BD_HL_SWEEP_MS: '60000', ...env }); const k = await client(t, r.sock);
+    await k.op({ op: 'send', text: 'hang' }); await k.until(e => e.ev === 'delta');
+    await k.op({ op: 'send', text: 'first' }); await k.op({ op: 'send', text: 'aside' }); await k.op({ op: 'send', text: 'second' });
+    await k.until(e => e.ev === 'inbox' && e.inbox.length === 3);
+    k.clear();
+    await k.op({ op: 'interrupt' });
+    await k.until(e => e.ev === 'inbox' && !e.inbox.length);
+    assert.deepStrictEqual(inboxIds(k), ['m-3', ''], JSON.stringify(env));
+  }
+});
+
+test('inbox: an echo the old claude sends while a restart stops it still counts, so the message is not sent twice', async t => {
+  const r = runner(t, 'new', { FAKE_TERM_ECHO: '1' }); const k = await client(t, r.sock);
+  await k.op({ op: 'send', text: 'hang' }); await k.until(e => e.ev === 'delta');
+  await k.op({ op: 'send', text: 'heard late' });
+  await k.until(e => e.ev === 'inbox' && e.inbox.length === 1);
+  k.clear();
+  await k.op({ op: 'restart' });
+  await k.until(e => e.ev === 'inbox' && !e.inbox.length);
+  for (let i = 0; i < 50 && logged(r) < 2; i++) await new Promise(res => setTimeout(res, 20));
+  assert.strictEqual(logged(r), 2);
+  await new Promise(res => setTimeout(res, 200));
+  assert.doesNotMatch(r.log(), /sending again/);
+  assert.ok(!k.evs.some(e => e.ev === 'delta'));
 });
