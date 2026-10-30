@@ -1960,7 +1960,7 @@ async function openTranscriptFile(hh) {
 // A layer (drawer, terminal panel, palette, #modal dialog) pushes a history entry, so the phone's back gesture / browser
 // Back closes the layer instead of leaving the dashboard. Closing from the UI pops that entry again so history stays clean.
 // history.back() is async and a pushState() before it lands ends up on the wrong entry, hence the handover and the queue.
-const LAYERS = { depth: 0, closing: false, modal: false, queued: 0, fwd: false, timer: 0, reuse: false };
+const LAYERS = { depth: 0, closing: false, modal: false, queued: 0, fwd: false, timer: 0, fwdTimer: 0, reuse: false };
 const modalOpen = () => !$('#modal').classList.contains('hidden');
 function pushLayer(name) {
   if (LAYERS.modal && !modalOpen()) { LAYERS.modal = false; return; }   // close(); openTerm(x) in one tick: the dialog's entry becomes this layer's
@@ -1977,8 +1977,8 @@ function popLayer() {
   if (LAYERS.fwd) { setTimeout(popLayer, 50); return; }   // back() before a forward() lands counts from the entry below: that leaves the page
   if (LAYERS.depth > 0 && !LAYERS.closing) { LAYERS.closing = true; history.back(); clearTimeout(LAYERS.timer); LAYERS.timer = setTimeout(() => { if (LAYERS.closing) { LAYERS.closing = false; settleLayers(); } }, 1000); }
 }
-function layerForward() { LAYERS.fwd = true; history.forward(); setTimeout(() => { if (LAYERS.fwd) { LAYERS.fwd = false; settleLayers(); } }, 1000); }
-function settleLayers() { while (LAYERS.queued) { LAYERS.queued--; pushLayer('layer'); } syncModalLayer(); }
+function layerForward() { LAYERS.fwd = true; history.forward(); clearTimeout(LAYERS.fwdTimer); LAYERS.fwdTimer = setTimeout(() => { if (LAYERS.fwd) { LAYERS.fwd = false; settleLayers(); } }, 1000); }
+function settleLayers() { let n = LAYERS.queued; LAYERS.queued = 0; while (n-- > 0) pushLayer('layer'); syncModalLayer(); }
 // #modal is one layer whoever owns it: every dialog shows and hides it, so one observer sees all of them, however they close
 // (X, Cancel, backdrop, Escape, a successful action). A dialog replacing another never changes the class, so no second entry.
 function syncModalLayer() { const open = modalOpen(); if (LAYERS.closing || LAYERS.fwd || open === LAYERS.modal) return; LAYERS.modal = open; if (open) pushLayer('modal'); else popLayer(); }
