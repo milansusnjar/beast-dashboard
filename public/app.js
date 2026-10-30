@@ -1521,7 +1521,7 @@ function composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDr
   ta.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); (pick && ev.altKey ? second : first)(); } else if (ev.key === 'Escape' && (busy || justSent)) { ev.preventDefault(); stop(); } });
   const sendBtn = h('button', { class: 'btn primary csend', title: pick === 'queue' ? 'queue it for after this turn (Enter)' : pick ? 'send now — Claude reads it at its next step (Enter)' : 'send (Enter)', onclick: first }, ico('send', 16));
   const stopBtn = busy || busyNow || justSent ? h('button', { class: 'btn csend cstop', title: 'stop Claude (Escape)', onclick: stop }, h('i', { class: 'cstop-sq' })) : null;
-  syncAct = () => { if (!stopBtn) return; const empty = !ta.value.trim(); stopBtn.classList.toggle('hidden', !empty); sendBtn.classList.toggle('hidden', empty); if (queueBtn) queueBtn.classList.toggle('hidden', empty); };
+  syncAct = () => { if (!stopBtn) return; const empty = !ta.value.trim(); stopBtn.classList.toggle('hidden', !empty); sendBtn.classList.toggle('hidden', empty); };
   // 📎 attach: any file (photo / screenshot downscaled, everything else as-is) -> ~/dev/.pasted -> its path goes into the message (Claude reads it)
   const fileIn = h('input', { type: 'file', multiple: true, style: 'display:none' });
   const attachFiles = async files => { files = [...files].filter(Boolean); if (!files.length) return;
@@ -1537,12 +1537,8 @@ function composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDr
     sj.length ? h('span', { class: 'sjobs' }, sj.map(j => h('span', { class: 'sjob', title: j.prompts.join('\n\n') }, ico('clock', 12), ' ', j.whenFree ? 'when free' : new Date(j.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), j.prompts.length > 1 ? ` ×${j.prompts.length}` : '', j.state === 'running' || j.state === 'sent' ? ' · ' + j.state : '', h('button', { class: 'x', title: 'remove', onclick: () => api('schedule-remove', { id: j.id }) }, ico('x', 11))))) : null,
     cl.state === 'permission' && !cl.menu && cl.mode !== 'chat' ? ['y', 'n'].map(k => h('button', { class: 'btn sm qk ' + (k === 'y' ? 'yes' : 'no'), onclick: () => api('send', { session: name, text: k, enter: false }) }, k)) : null,
     cl.mode === 'chat' ? null : h('button', { class: 'btn sm ghost qk', title: 'send Ctrl-C', onclick: () => { if (confirm('Send Ctrl-C?')) api('key', { session: name, key: 'c-c' }); } }, '^C'));
-  // Claude busy (working / waiting on background agents / asking permission): ⏳ queues the message instead of typing
-  // it in now; the server sends it the moment the session is free
-  const queueBtn = pick === 'queue' ? h('button', { class: 'btn cqueue', title: 'send now — Claude reads it at its next step (Alt+Enter)', onclick: second }, ico('zap', 18))
-    : busyNow || pick ? h('button', { class: 'btn cqueue', title: 'send when Claude is free — queued, goes out by itself the moment this turn is over' + (pick ? ' (Alt+Enter)' : ''), onclick: queue }, gl('⏳')) : null;
   const el = h('div', { class: 'cbox2', 'data-k': compKey }, h('div', { class: 'cfield', onclick: ev => { if (ev.target === ev.currentTarget || ev.target.classList.contains('cfoot')) ta.focus(); } }, ta,
-    h('div', { class: 'cfoot' }, keys, cl.state ? modelPicker(name, cl) : null, queueBtn, stopBtn, sendBtn)));
+    h('div', { class: 'cfoot' }, keys, cl.state ? modelPicker(name, cl) : null, stopBtn, sendBtn)));
   syncAct();
   el._c = { el, ta, grow, stop, attachFiles };
   dropZone(box, el);

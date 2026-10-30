@@ -1186,12 +1186,9 @@ body.recording .ckeys > :not(.mic) { pointer-events: none; opacity: .4; }
 .cstop { background: var(--red); border: 0; box-shadow: 0 0 10px color-mix(in srgb, var(--red) 35%, transparent); }
 .cstop:hover { background: color-mix(in srgb, var(--red) 85%, #fff); }
 .cstop-sq { display: block; width: 9px; height: 9px; border-radius: 2px; background: #fff; }
-.cqueue { flex: none; width: 28px; height: 28px; min-width: 0; padding: 0; border-radius: 50%; font-size: 14px; color: var(--muted); background: var(--fill2); border: 0; box-shadow: none; justify-content: center; }
-.cqueue:hover { background: color-mix(in srgb, var(--text) 14%, transparent); color: var(--text); }
-.cqueue .ico { width: 14px; height: 14px; }
 .ckeys .csched .ico { width: 16px; height: 16px; stroke-width: 1.6; }
-.csend, .cqueue { transition: background .15s, transform .1s; }
-.csend:active, .cqueue:active { transform: scale(.92); }
+.csend { transition: background .15s, transform .1s; }
+.csend:active { transform: scale(.92); }
 .qr.sticky { position: sticky; bottom: 0; background: var(--bg2); padding: 10px 0; border-top: 1px solid var(--line); margin-top: auto; }
 .mpick { display: inline-flex; gap: 6px; flex: none; }
 .mpill { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px 0 9px; border-radius: 999px; border: 1px solid var(--line2); background: var(--fill); color: var(--text); font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; transition: background .15s, border-color .15s; }
@@ -1408,7 +1405,7 @@ body.recording .ckeys > :not(.mic) { pointer-events: none; opacity: .4; }
   .ckeys .qk { width: 38px; height: 40px; border-radius: 12px; } .ckeys .qk .ico { width: 21px; height: 21px; }
   .ckeys .qk.mic { min-width: 38px; height: 40px; padding: 0 8px; border-radius: 12px; }
   .cfield .mpick { gap: 0; } .cfield .mpill { padding: 0 7px; }
-  .csend, .cqueue { width: 32px; height: 32px; } .csend .ico { width: 15px; height: 15px; }
+  .csend { width: 32px; height: 32px; } .csend .ico { width: 15px; height: 15px; }
   .cstop-sq { width: 10px; height: 10px; }
   .ckeys .csched .ico { width: 18px; height: 18px; }
   .tr-sum, .tg-sum { padding: 8px 6px; font-size: 13.5px; } .trow.open > .tr-body { padding-left: 4px; } .tgroup.open > .tg-body { margin-left: 8px; padding-left: 6px; }
