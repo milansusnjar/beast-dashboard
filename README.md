@@ -3,6 +3,10 @@
 **A self-hosted control room for the Linux box where your code and your AI agents live.**
 Open it from your laptop or your phone; the machine keeps working while the laptop is closed.
 
+![Demo: home, new project, a chat with a working session, the schedule picker, the options menu, and the phone layout](docs/demo/demo.gif)
+
+[Watch the same demo as a video (mp4)](docs/demo/demo.mp4)
+
 ![Home: the agent that needs you on top, every Claude Code session, the machine, the spend, what is running](docs/screenshots/home.png)
 
 Beast Dash is one Node process with **zero npm dependencies**. Point it at the folder that holds
