@@ -222,5 +222,5 @@ FEAT.wip = (() => {
     host.replaceChildren(...build());
   }
 
-  return { onState, insertDraft, grid };
+  return { onState, insertDraft, grid, orgAccount: org => orgAccounts()(org) };
 })();

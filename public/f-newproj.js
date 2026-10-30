@@ -2,7 +2,7 @@
 FEAT.newproj = (() => {
   const RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
   const saved = () => localStorage.getItem('bd.nt.acct') === 'company' ? 'company' : 'personal';
-  const hue = n => (n.split('').reduce((a, c) => a * 31 + c.charCodeAt(0), 7) >>> 0) % 360;
+  const hue = n => n.split('').reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) % 360;
   const tileOf = n => h('span', { class: 'av ns-org sm', style: `--org:hsl(${hue(n)} 45% 64%)` }, h('span', { class: 'g' }, n.slice(0, 2).toUpperCase()));
 
   function folders() {
@@ -18,7 +18,7 @@ FEAT.newproj = (() => {
     const m = $('#modal'); m.classList.remove('hidden');
     const F = folders();
     const st = { org: '', group: '', fresh: false, acct: saved(), touched: false, busy: false };
-    const orgAcct = o => (S.settings?.orgAccounts || {})[o] === 'company' ? 'company' : (S.settings?.orgAccounts || {})[o] === 'personal' ? 'personal' : null;
+    const orgAcct = o => FEAT.wip?.orgAccount ? FEAT.wip.orgAccount(o) : ['personal', 'company'].includes((S.settings?.orgAccounts || {})[o]) ? S.settings.orgAccounts[o] : null;
     const close = () => { m.classList.add('hidden'); document.removeEventListener('keydown', onEsc, true); };
     const onEsc = e => { if (!box.isConnected) { document.removeEventListener('keydown', onEsc, true); return; } if (e.key !== 'Escape' || m.classList.contains('hidden')) return; e.preventDefault(); e.stopPropagation(); close(); };
     document.addEventListener('keydown', onEsc, true);
@@ -93,5 +93,6 @@ FEAT.newproj = (() => {
     if (first) pick(first, '', false); else pick('', '', true);
   }
 
+  const btn = $('#btn-newproj'); if (btn) btn.onclick = () => open();
   return { open };
 })();
