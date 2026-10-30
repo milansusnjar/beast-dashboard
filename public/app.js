@@ -1501,7 +1501,8 @@ function composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDr
   // reply box: textarea that grows to 6 lines; Enter sends, Shift+Enter = newline; Esc button interrupts Claude
   const ta = h('textarea', { class: 'creply', rows: 1, placeholder: cl.menu ? 'pick an option above first' : cl.mode === 'chat' && cl.state === 'permission' ? 'answer above, or type a message…' : cl.state === 'permission' ? 'y / n, or type…' : 'Message Claude…', title: 'Enter sends · Shift+Enter = new line', autocomplete: 'off', autocapitalize: 'sentences', spellcheck: true });
   ta.value = prevDraft;
-  const grow = () => { ta.style.height = '44px'; if (ta.value) ta.style.height = Math.min(Math.max(44, ta.scrollHeight), 6 * 24 + 20) + 'px'; saveDraft(name, ta.value); };   // every change goes through grow() -> the draft is saved
+  let syncAct = () => {};
+  const grow = () => { ta.style.height = '0px'; ta.style.height = Math.min(Math.max(IS_PHONE ? 48 : 56, ta.scrollHeight), 10 * 24 + 12) + 'px'; saveDraft(name, ta.value); syncAct(); };   // every change goes through grow() -> the draft is saved
   const sendText = async (v) => { (PENDING[name] = PENDING[name] || []).push({ text: v, ts: Date.now() }); conv.append(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, gl('❯ you'), h('span', { class: 'dim mono' }, ' sending…')), h('div', { class: 'ttext' }, v))); scroller.scrollTop = scroller.scrollHeight; try { await api('send', { session: name, text: v }); } catch (e) { toast(e.message, 'err'); } setTimeout(o.refresh, 700); setTimeout(o.refresh, 2500); };
   const send = async () => { const v = ta.value.trim(); if (!v) return; if ((claudeOf(name) || {}).menu) { toast('Claude is asking something — pick an option above first', 'err'); return; } ta.value = ''; grow();
     const pm = { text: v, ts: Date.now() }; (PENDING[name] = PENDING[name] || []).push(pm);
@@ -1517,6 +1518,8 @@ function composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDr
   const first = pick === 'queue' ? queue : send, second = pick === 'queue' ? send : queue;
   ta.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); (pick && ev.altKey ? second : first)(); } else if (ev.key === 'Escape' && (busy || justSent)) { ev.preventDefault(); stop(); } });
   const sendBtn = h('button', { class: 'btn primary csend', title: pick === 'queue' ? 'queue it for after this turn (Enter)' : pick ? 'send now — Claude reads it at its next step (Enter)' : 'send (Enter)', onclick: first }, ico('send', 16));
+  const stopBtn = busy || busyNow || justSent ? h('button', { class: 'btn csend cstop', title: 'stop Claude (Escape)', onclick: stop }, h('i', { class: 'cstop-sq' })) : null;
+  syncAct = () => { if (!stopBtn) return; const empty = !ta.value.trim(); stopBtn.classList.toggle('hidden', !empty); sendBtn.classList.toggle('hidden', empty); if (queueBtn) queueBtn.classList.toggle('hidden', empty); };
   // 📎 attach: any file (photo / screenshot downscaled, everything else as-is) -> ~/dev/.pasted -> its path goes into the message (Claude reads it)
   const fileIn = h('input', { type: 'file', multiple: true, style: 'display:none' });
   const attachFiles = async files => { files = [...files].filter(Boolean); if (!files.length) return;
@@ -1530,17 +1533,15 @@ function composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDr
   const clock = h('button', { class: 'btn sm ghost qk', title: 'schedule this message for later (or a chain of messages)', onclick: () => scheduleDialog(name, ta.value) }, ico('clock', 15));
   const keys = h('div', { class: 'ckeys' }, attach, mic, clock, fileIn, ...feat('composerKeys', name),
     sj.length ? h('span', { class: 'sjobs' }, sj.map(j => h('span', { class: 'sjob', title: j.prompts.join('\n\n') }, ico('clock', 12), ' ', j.whenFree ? 'when free' : new Date(j.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), j.prompts.length > 1 ? ` ×${j.prompts.length}` : '', j.state === 'running' || j.state === 'sent' ? ' · ' + j.state : '', h('button', { class: 'x', title: 'remove', onclick: () => api('schedule-remove', { id: j.id }) }, ico('x', 11))))) : null,
-    cl.state === 'working' || cl.state === 'background' ? h('button', { class: 'btn sm ghost qk esck', title: 'interrupt Claude (Escape)', onclick: () => api('key', { session: name, key: 'esc' }).then(() => toast('Esc sent')) }, 'Esc') : null,
     cl.state === 'permission' && !cl.menu && cl.mode !== 'chat' ? ['y', 'n'].map(k => h('button', { class: 'btn sm qk ' + (k === 'y' ? 'yes' : 'no'), onclick: () => api('send', { session: name, text: k, enter: false }) }, k)) : null,
-    cl.mode === 'chat' ? null : h('button', { class: 'btn sm ghost qk', title: 'send Ctrl-C', onclick: () => { if (confirm('Send Ctrl-C?')) api('key', { session: name, key: 'c-c' }); } }, '^C'),
-    cl.state ? modelPicker(name, cl) : null);
+    cl.mode === 'chat' ? null : h('button', { class: 'btn sm ghost qk', title: 'send Ctrl-C', onclick: () => { if (confirm('Send Ctrl-C?')) api('key', { session: name, key: 'c-c' }); } }, '^C'));
   // Claude busy (working / waiting on background agents / asking permission): ⏳ queues the message instead of typing
   // it in now; the server sends it the moment the session is free
   const queueBtn = pick === 'queue' ? h('button', { class: 'btn cqueue', title: 'send now — Claude reads it at its next step (Alt+Enter)', onclick: second }, ico('zap', 18))
     : busyNow || pick ? h('button', { class: 'btn cqueue', title: 'send when Claude is free — queued, goes out by itself the moment this turn is over' + (pick ? ' (Alt+Enter)' : ''), onclick: queue }, gl('⏳')) : null;
-  const hint = pick ? h('div', { class: 'chint' }, 'Claude is working — ', IS_PHONE ? (pick === 'queue' ? 'send: after this turn · ⚡ now' : 'send: now · ⏳ after this turn')
-    : pick === 'queue' ? 'Enter: after this turn · Alt+Enter: now' : 'Enter: now, read at its next step · Alt+Enter: after this turn') : null;
-  const el = h('div', { class: 'cbox2', 'data-k': compKey }, keys, hint, h('div', { class: 'crow' }, ta, queueBtn, sendBtn));
+  const el = h('div', { class: 'cbox2', 'data-k': compKey }, h('div', { class: 'cfield', onclick: ev => { if (ev.target === ev.currentTarget || ev.target.classList.contains('cfoot')) ta.focus(); } }, ta,
+    h('div', { class: 'cfoot' }, keys, cl.state ? modelPicker(name, cl) : null, queueBtn, stopBtn, sendBtn)));
+  syncAct();
   el._c = { el, ta, grow, stop, attachFiles };
   dropZone(box, el);
   return el._c;
