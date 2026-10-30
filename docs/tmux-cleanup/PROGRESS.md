@@ -90,3 +90,15 @@ Every dashboard route and UI entry that starts or resumes Claude now starts a ch
 - Past conversation view: "In terminal" removed, "Continue in chat" stays.
 
 Left for later tasks (no chat equivalent yet or still pane code): Hand off button (needs the `limit` state, gap A), restart/update buttons shown for old terminal sessions (the route now answers with a clear error), `restartIdleTerms` banner, README text, `claude-switch` route itself.
+
+## Review fixes (done)
+
+Fixes for the review of "Start chats from every entry point".
+
+- Restore and `claude-switch` now start the chat in the folder that holds the conversation file: `headless.locateTranscript` walks up from the record's folder (both config dirs when the account is unknown; the account comes from the record, else a `-company` suffix in the session name). No file found: terminal records are refused with an error instead of silently starting an empty conversation. `forkChat` uses the same helper. Test: `test/locate.test.js`.
+- A conversation that is already live is opened instead of started twice (`resumeChat`, `restoreClaude`). After a resume, gone records of the same conversation are forgotten (`claude.forgetGone`), so the restore banner has no duplicates.
+- `history.latestFor` refreshes the index incrementally (`refresh(true)`), so a chat that just finished is found. Test in `test/history.test.js`.
+- New chat names skip names that still have a record, so gone records keep their own name and stay restorable.
+- Auto-restore, the banner and `claude-restore` only offer chats and `claude-*` records, not plain `sh-N` shells where claude was run by hand.
+- Restore feedback in the UI is per item (error toast for failures, only started sessions are opened); records without a conversation id are forgotten.
+- Claude menu: no menu when the card was re-rendered during the history lookup. `&mode=chat` removed from push and menubar links. README describes the chat-only flow.

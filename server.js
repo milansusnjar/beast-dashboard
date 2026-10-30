@@ -72,9 +72,12 @@ function targetCwd(target) {
   return t.kind === 'root' ? devRoot : null;
 }
 async function resumeChat(cwd, acc, sessionId) {
+  const liveName = sessionId ? liveOf(sessionId) : null;
+  if (liveName) { claude.forgetGone(sessionId, liveName); return { ok: true, name: liveName, existed: true }; }
   const base = path.basename(cwd).replace(/[^A-Za-z0-9_.-]+/g, '-'); const suffix = acc === 'company' ? '-company' : '';
-  let name = `claude-${base}${suffix}`; let n = 2; while (await actions.sessionExists(name)) name = `claude-${base}-${n++}${suffix}`;
+  let name = `claude-${base}${suffix}`; let n = 2; while (claude.get(name) || await actions.sessionExists(name)) name = `claude-${base}-${n++}${suffix}`;
   const r = await headless.launch(name, cwd, acc, sessionId ? { start: 'resume', sessionId } : { start: 'new' });
+  if (r.ok && !r.existed && sessionId) claude.forgetGone(sessionId, r.name || name);
   const hl = r.ok && sessionId ? history.labelOf(sessionId) : null; if (hl) claude.setLabel(r.name || name, hl);
   return r;
 }
@@ -308,7 +311,7 @@ async function runSchedule() {
     if (j.whenFree && j.state === 'done') continue;   // the session's own "done" push already covers it
     // a task rode on this job: attach Claude's closing message and tell the phone about the TASK, not the job
     const tk = tasks.noteResult(j.id, { ok: j.state === 'done', summary: claude.get(j.session)?.lastMessage, session: j.session, error: j.error });
-    if (tk) { if (pushAllowed('done', j.session)) push.notify({ title: `${tk.title.slice(0, 60)} · ${j.state === 'done' ? 'Claude finished' : 'failed'}`, body: oneLine(tk.result.summary || tk.result.error || 'review it on the Tasks screen', 80), url: '/?view=tasks', tag: 'task-' + tk.id }).catch(() => {}); pushState(true); continue; } const ok = j.state === 'done'; if (pushAllowed('done', j.session)) push.notify({ title: `${j.session.replace(/^claude-/, '').replace(/-company$/, '')} · scheduled ${ok ? 'done' : 'failed'}`, body: oneLine(ok ? j.prompts[0] : (j.error || ''), 80), url: `/?term=${encodeURIComponent(j.session)}&mode=chat`, tag: 'sched-' + j.id }).catch(() => {}); }
+    if (tk) { if (pushAllowed('done', j.session)) push.notify({ title: `${tk.title.slice(0, 60)} · ${j.state === 'done' ? 'Claude finished' : 'failed'}`, body: oneLine(tk.result.summary || tk.result.error || 'review it on the Tasks screen', 80), url: '/?view=tasks', tag: 'task-' + tk.id }).catch(() => {}); pushState(true); continue; } const ok = j.state === 'done'; if (pushAllowed('done', j.session)) push.notify({ title: `${j.session.replace(/^claude-/, '').replace(/-company$/, '')} · scheduled ${ok ? 'done' : 'failed'}`, body: oneLine(ok ? j.prompts[0] : (j.error || ''), 80), url: `/?term=${encodeURIComponent(j.session)}`, tag: 'sched-' + j.id }).catch(() => {}); }
   if (done.length) setTimeout(tick, 200);
 }
 // Weekly digest (Monday 09:00 local): sessions, cost per account, commits by you across all repos in the last 7 days.
@@ -435,7 +438,7 @@ function chatAskPush(name, req) {
   const question = req.kind === 'question';
   const title = question ? `${who} · question` : `${who} · needs permission`;
   const body = oneLine(question ? (req.questions?.[0]?.question || req.what || 'Claude asks you something') : (req.what || req.tool || 'wants to run a tool'), 80);
-  if (!pushGate.blocked(name, 'permission', now) && pushAllowed('permission', name)) { pushGate.sent(name, 'permission', now); push.notify({ title, body, url: `/?term=${encodeURIComponent(name)}&mode=chat`, tag: name, session: name, kind: question ? 'question' : 'permission', since: req.at }).then(res => { if (res.sent || res.test) console.log(`push: ${title} -> ${res.sent}`); }); }
+  if (!pushGate.blocked(name, 'permission', now) && pushAllowed('permission', name)) { pushGate.sent(name, 'permission', now); push.notify({ title, body, url: `/?term=${encodeURIComponent(name)}`, tag: name, session: name, kind: question ? 'question' : 'permission', since: req.at }).then(res => { if (res.sent || res.test) console.log(`push: ${title} -> ${res.sent}`); }); }
   broadcast('ding', { tmux: name, state: 'permission', title });
 }
 headless.onEvent((name, o) => { if (o.ev === 'pending') chatAskPush(name, o.req); });
@@ -457,7 +460,7 @@ claude.onChange((ev, r, prev) => {
     : r.state === 'error' ? oneLine(r.lastMessage || 'API error', 80)
     : oneLine(r.title || r.lastPrompt || r.lastMessage || 'finished', 80);
   const skipQuick = r.state === 'needs-you' && turn != null && turn < 20000;
-  if (!skipQuick && !pushGate.blocked(r.tmux, kind, now) && pushAllowed(kind, r.tmux)) { pushGate.sent(r.tmux, kind, now); push.notify({ title, body, url: `/?term=${encodeURIComponent(r.tmux)}&mode=chat`, tag: r.tmux, session: r.tmux, kind, since: r.since }).then(res => { if (res.sent) console.log(`push: ${title} -> ${res.sent}`); }); }
+  if (!skipQuick && !pushGate.blocked(r.tmux, kind, now) && pushAllowed(kind, r.tmux)) { pushGate.sent(r.tmux, kind, now); push.notify({ title, body, url: `/?term=${encodeURIComponent(r.tmux)}`, tag: r.tmux, session: r.tmux, kind, since: r.since }).then(res => { if (res.sent) console.log(`push: ${title} -> ${res.sent}`); }); }
   broadcast('ding', { tmux: r.tmux, state: r.state, title });
   setTimeout(tick, 150);
 });
@@ -904,7 +907,7 @@ async function api(req, res, url) {
     }
     case 'claude-restore': { // relaunch sessions whose tmux session vanished (reboot): all of them, or one by tmux name
       const list = claude.restorable().filter(r => !b.tmux || r.tmux === b.tmux); const out = [];
-      for (const r of list) { const rec = claude.get(r.tmux); out.push({ tmux: r.tmux, ...(await actions.restoreClaude(rec)) }); }
+      for (const r of list) { const rec = claude.get(r.tmux); if (!rec) continue; out.push({ tmux: r.tmux, ...(await actions.restoreClaude(rec)) }); }
       setTimeout(tick, 1000); setTimeout(tick, 3000); return json(res, 200, { ok: true, restored: out });
     }
     case 'claude-forget': { if (typeof b.tmux !== 'string') return json(res, 400, { error: 'tmux?' }); const r = claude.forget(b.tmux); setTimeout(tick, 100); return json(res, 200, r); }
@@ -942,10 +945,10 @@ async function api(req, res, url) {
       if (!rec || !(await actions.sessionExists(name))) return json(res, 404, { error: 'no such session' });
       if (SWITCHING.has(name)) return json(res, 409, { error: 'busy' });
       if (rec.mode === 'chat') return json(res, 409, { error: 'already a chat' });
-      const sid = rec.sessionId; const account = rec.account === 'company' ? 'company' : 'personal';
+      const sid = rec.sessionId;
       if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(sid || '')) return json(res, 409, { error: 'no conversation id' });
-      const tr = headless.findTranscript(rec.cwd, account, sid, rec.transcriptPath); if (!tr) return json(res, 409, { error: 'conversation file not found' });
-      const cwd = tr.dir; if (!cwd) return json(res, 409, { error: 'the session folder is gone' });
+      const tr = headless.locateTranscript(rec.cwd, headless.recordAccount(rec), sid); if (!tr) return json(res, 409, { error: 'conversation file not found' });
+      const cwd = tr.dir; const account = tr.account; if (!fs.existsSync(cwd)) return json(res, 409, { error: 'the session folder is gone' });
       SWITCHING.add(name); SWITCHED.set(name, Date.now());
       try {
         const pane = await actions.paneInfo(name);

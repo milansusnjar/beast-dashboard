@@ -171,3 +171,15 @@ test('latestFor: newest conversation whose folder is exactly the given one, per 
   await h.refresh(true);
   assert.strictEqual((await h.latestFor(shop, 'personal')).live, 'claude-shop');
 });
+
+test('latestFor: a conversation written after the index was built is found at once', async t => {
+  const e = setup(t);
+  const shop = path.join(e.dev, 'acme', 'shop');
+  e.write('personal', 'x', ID(1), [user('first one', 1000, { cwd: shop })]);
+  e.start();
+  const before = await h.latestFor(shop, 'personal');
+  assert.strictEqual(before.id, ID(1));
+  e.write('personal', 'x', ID(2), [user('just finished', 5000, { cwd: shop })]);
+  const after = await h.latestFor(shop, 'personal');
+  assert.strictEqual(after.id, ID(2));
+});

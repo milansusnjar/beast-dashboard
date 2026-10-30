@@ -618,6 +618,16 @@ async function startBundle(p) {
   const b = S.settings.projects?.[p.id]?.bundle || []; if (!b.length) return;
   for (const e of b) { try { if (e.kind === 'cmd') { if (!runtimeFor(p.id).sessions.some(s => s.label === e.name)) await act(`${p.name}: ${e.name}`, api('run', { id: p.id, name: e.name })); } else if (e.kind === 'claude') { if (!runtimeFor(p.id).sessions.some(s => s.claude?.mode === 'chat' && (s.claude.account || 'personal') === e.name)) await startClaude(p, e.name, {}, true); } } catch {} }
 }
+async function restoreClaude(tmux) {
+  try {
+    const items = (await api('claude-restore', tmux ? { tmux } : {})).restored || [];
+    const ok = items.filter(x => x.ok);
+    if (!items.length) toast('Nothing to restore', 'err');
+    for (const x of items.filter(x => !x.ok)) toast(`Restore ${x.tmux} failed: ${x.error}`, 'err');
+    if (ok.length) toast('Restored ' + ok.map(x => x.name || x.tmux).join(', '), 'ok');
+    if (tmux && ok.length) openTerm(ok[0].name || ok[0].tmux);
+  } catch (e) { toast('Restore failed: ' + e.message, 'err'); }
+}
 async function startClaude(p, account, opts = {}, quiet) {
   if (!quiet && !opts.resume && !opts.worktree) noteBundle(p, { kind: 'claude', name: account });
   try { const r = await api('claude', { id: p.id, account, ...opts }); toast(r.existed ? `Attaching to ${r.name}` : `Started ${r.name} (${account}, chat)`, 'ok'); openTerm(r.name); }
@@ -627,6 +637,7 @@ async function claudeMenu(ev, p) {
   const anchor = ev.currentTarget; const two = multiAcct(); const accts = two ? ['personal', 'company'] : ['personal'];
   const mine = runtimeFor(p.id).sessions.filter(s => isClaudeSession(s) && s.claude?.mode === 'chat');
   const last = await api('history-last?id=' + encodeURIComponent(p.id)).catch(() => null);
+  if (!anchor.isConnected) return;
   const wt = account => { const name = prompt('Name for the new git worktree + branch (e.g. feat-login):'); if (name && name.trim()) startClaude(p, account, { worktree: name.trim() }); };
   openMenu({ currentTarget: anchor }, [
     { header: 'New chat' },
@@ -1130,10 +1141,10 @@ function renderBanner() {
   if (rs.length) parts.push(h('div', { class: 'ban restore' },
     h('b', null, ico('sparkle', 14), ` ${rs.length} Claude session${rs.length > 1 ? 's' : ''} from before the restart`), h('span', { class: 'dim' }, ' — same folder, same conversation (claude --resume):'),
     h('span', { class: 'rlist' }, rs.map(r => h('span', { class: 'rchip', title: (r.title || '') + '\n' + r.cwd + '\ngone ' + ago(r.gone) + ' ago' },
-      h('button', { class: 'btn sm', onclick: () => act('Restore ' + r.tmux, api('claude-restore', { tmux: r.tmux })).then(() => openTerm(r.tmux)) }, gl('↺ '), r.tmux.replace(/^claude-/, ''), r.account === 'company' ? h('span', { class: 'badge tag acc company' }, acct('company')) : null),
+      h('button', { class: 'btn sm', onclick: () => restoreClaude(r.tmux) }, gl('↺ '), r.tmux.replace(/^claude-/, ''), r.account === 'company' ? h('span', { class: 'badge tag acc company' }, acct('company')) : null),
       h('button', { class: 'x', title: 'forget this one', onclick: () => api('claude-forget', { tmux: r.tmux }) }, gl('✕'))))),
     h('span', { style: 'flex:1' }),
-    h('button', { class: 'btn sm primary', onclick: () => act('Restore all', api('claude-restore', {})) }, gl('↺ Restore all')),
+    h('button', { class: 'btn sm primary', onclick: () => restoreClaude() }, gl('↺ Restore all')),
     h('button', { class: 'btn sm ghost', title: 'forget all', onclick: () => { if (confirm('Forget these sessions? (they stay in claude --resume history, just not here)')) for (const r of rs) api('claude-forget', { tmux: r.tmux }); } }, gl('✕'))));
   el.replaceChildren(...parts); el.classList.toggle('hidden', !parts.length);
 }
@@ -2658,7 +2669,7 @@ function paletteItems() {
     { kind: 'action', label: 'Home', sub: 'stats · agents · running  (h)', icon: '⌂', hay: 'home dashboard', run: () => setView('home'), rank: 28 });
   items.push(...feat('paletteItems'));
   if (S.claude?.update) items.push({ kind: 'action', label: 'Update Claude Code', sub: `${S.claude.installed || '?'} → ${S.claude.update.version} (mise upgrade claude)`, icon: 'arrowUp', hay: 'update upgrade claude code version mise', run: () => updateClaude(null), rank: 0 });
-  if ((S.claude?.restorable || []).length) items.push({ kind: 'action', label: 'Restore Claude sessions', sub: `${S.claude.restorable.length} from before the restart`, icon: '↺', hay: 'restore claude sessions resume', run: () => act('Restore all', api('claude-restore', {})), rank: 0 });
+  if ((S.claude?.restorable || []).length) items.push({ kind: 'action', label: 'Restore Claude sessions', sub: `${S.claude.restorable.length} from before the restart`, icon: '↺', hay: 'restore claude sessions resume', run: () => restoreClaude(), rank: 0 });
   const score = it => { if (!q) return 0; const hay = it.hay.toLowerCase(); if (hay.includes(q)) return 1; const w = q.split(/\s+/); return w.every(x => hay.includes(x)) ? 2 : (fuzzy(it.label.toLowerCase(), q) ? 3 : 0); };
   return items.map((it, i) => ({ ...it, s: score(it), i })).filter(it => !q || it.s).sort((a, b) => (q ? a.s - b.s : 0) || a.rank - b.rank || a.i - b.i).slice(0, 40);
 }

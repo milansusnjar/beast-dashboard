@@ -22,7 +22,7 @@ d=json.load(sys.stdin); u=sys.argv[1]
 safe=lambda v: " ".join(str(v).replace("|", "¦").split())
 for s in d["needList"]:
     name=safe(s.get("label") or s["name"].replace("claude-",""))
-    print("%s · %s | href=%s/?term=%s&mode=chat color=#34d399" % (name, safe(s["state"]), u, urllib.parse.quote(s["name"])))
+    print("%s · %s | href=%s/?term=%s color=#34d399" % (name, safe(s["state"]), u, urllib.parse.quote(s["name"])))
     if s.get("msg"): print("  %s | size=11 color=gray" % safe(s["msg"])[:80])
 if d.get("crashes"): print("▶ %d dev server(s) died | color=red href=%s/" % (d["crashes"], u))
 ' "$URL"
