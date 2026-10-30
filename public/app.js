@@ -153,6 +153,7 @@ const ICONS = {
   fileText: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/>',
   zap: '<path d="M13 3 5 13.5h6L10 21l8-10.5h-6z"/>',
   layers: '<path d="m12 4 9 4.5-9 4.5-9-4.5z"/><path d="m3 12.5 9 4.5 9-4.5M3 16.5l9 4.5 9-4.5"/>',
+  focus: '<path d="M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3"/><circle cx="12" cy="12" r="2.5"/>',
   folderOpen: '<path d="M3 18V7a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v1.5"/><path d="M3 18l2.6-6.4A1.5 1.5 0 0 1 7 10.6h13.3a1 1 0 0 1 .9 1.4L18.6 18.7a1.5 1.5 0 0 1-1.4.9H4.5A1.5 1.5 0 0 1 3 18z"/>',
   keyboard: '<rect x="2.5" y="6" width="19" height="12" rx="3"/><path d="M6.5 10h.01M10 10h.01M14 10h.01M17.5 10h.01M8 14.2h8"/>',
   menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
@@ -1446,7 +1447,7 @@ function renderConversation(box, name, t, o) {
   const scroller = same ? box.querySelector('.cscroll') : h('div', { class: 'cscroll' });
   const conv = same ? scroller.querySelector('.conv') : h('div', { class: 'conv' });
   const bar = h('div', { class: 'logbar cbar' }, h('span', { class: 'dim' }, `${t.turns.length} of ${t.total}${t.more ? '+' : ''} turns`), h('span', { style: 'flex:1' }),
-    t.total > t.turns.length || (t.more && o.n < 200) ? h('button', { class: 'btn sm', onclick: o.more }, '↑ older') : null, focusToggle(conv),
+    t.total > t.turns.length || (t.more && o.n < 200) ? h('button', { class: 'btn sm', onclick: o.more }, '↑ older') : null,
     ...feat('chatBar', name), h('button', { class: 'btn sm', onclick: o.refresh }, gl('↻')));
   const old = new Map(); for (const el of conv.children) if (el.dataset.h) old.set(el.dataset.h, el);
   const items = [];
@@ -1530,7 +1531,7 @@ function composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDr
   // 🎤 hold to talk (Web Speech API; Safari + Chrome): release sends
   const mic = voiceButton(ta, name);
   const clock = h('button', { class: 'btn sm ghost qk csched', title: 'schedule this message for later (or a chain of messages)', onclick: () => scheduleDialog(name, ta.value) }, ico('sched', 15));
-  const keys = h('div', { class: 'ckeys' }, attach, mic, clock, fileIn, ...feat('composerKeys', name),
+  const keys = h('div', { class: 'ckeys' }, attach, mic, clock, focusToggle(conv, scroller), fileIn, ...feat('composerKeys', name),
     sj.length ? h('span', { class: 'sjobs' }, sj.map(j => h('span', { class: 'sjob', title: j.prompts.join('\n\n') }, ico('clock', 12), ' ', j.whenFree ? 'when free' : new Date(j.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), j.prompts.length > 1 ? ` ×${j.prompts.length}` : '', j.state === 'running' || j.state === 'sent' ? ' · ' + j.state : '', h('button', { class: 'x', title: 'remove', onclick: () => api('schedule-remove', { id: j.id }) }, ico('x', 11))))) : null);
   const el = h('div', { class: 'cbox2', 'data-k': compKey }, h('div', { class: 'cfield', onclick: ev => { if (ev.target === ev.currentTarget || ev.target.classList.contains('cfoot')) ta.focus(); } }, ta,
     h('div', { class: 'cfoot' }, keys, cl.state ? modelPicker(name, cl) : null, stopBtn, sendBtn)));
@@ -1627,9 +1628,18 @@ function assistantTurn(turn, ctx) {
   else if (turn.stopped != null) el.append(h('div', { class: 'tdur stopped' }, 'you stopped it after ' + durTxt(turn.stopped)));
   return el;
 }
-function focusToggle(conv) {
+function focusToggle(conv, scroller) {
   conv.classList.toggle('focus', CHAT.focus);
-  return h('button', { class: 'btn sm ghost' + (CHAT.focus ? ' on' : ''), title: 'Focus: only your messages and Claude\'s replies — tool calls hidden', onclick: ev => { CHAT.focus = !CHAT.focus; try { localStorage.setItem('bd.chat.focus', CHAT.focus ? '1' : '0'); } catch {} conv.classList.toggle('focus', CHAT.focus); ev.currentTarget.classList.toggle('on', CHAT.focus); } }, 'Focus');
+  return h('button', { class: 'btn sm ghost qk cfocus' + (CHAT.focus ? ' on' : ''), title: 'Focus: only your messages and Claude\'s replies — tool calls hidden', onclick: () => {
+    // it can be pressed anywhere in the chat: what you're reading stays put while the tool rows above it fold away or come back (not every browser does scroll anchoring)
+    const top = scroller.getBoundingClientRect().top, atEnd = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 60;
+    const anchor = [...conv.querySelectorAll(':scope > .turn.user, :scope > .turn > .ttext')].find(el => el.getBoundingClientRect().bottom > top), was = anchor && anchor.getBoundingClientRect().top;
+    CHAT.focus = !CHAT.focus; try { localStorage.setItem('bd.chat.focus', CHAT.focus ? '1' : '0'); } catch {}
+    for (const c of document.querySelectorAll('.conv')) c.classList.toggle('focus', CHAT.focus);
+    for (const b of document.querySelectorAll('.cfocus')) b.classList.toggle('on', CHAT.focus);
+    if (atEnd) scroller.scrollTop = scroller.scrollHeight; else if (anchor) scroller.scrollTop += anchor.getBoundingClientRect().top - was;
+    toast(CHAT.focus ? 'Focus on: tool calls hidden' : 'Focus off: tool calls shown');
+  } }, ico('focus', 15), h('span', null, 'Focus'));
 }
 const UPLOAD_MAX_MB = 100;   // same as the server
 // images: downscaled to 1568px on the long edge (what Claude uses anyway); anything else raw, keeping its name. Returns the server path.

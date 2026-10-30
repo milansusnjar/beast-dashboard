@@ -1056,7 +1056,6 @@ body.term-open { overflow: hidden; }
 .cscroll { flex: 1; min-height: 0; overflow: auto; padding: 14px max(24px, 3vw) 18px; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y; }
 .cscroll > * { max-width: 1320px; margin-left: auto; margin-right: auto; }
 .cscroll .cbar { margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
-.cbar .btn.on { color: var(--text); background: color-mix(in srgb, var(--accent) 20%, transparent); }
 .coff { color: var(--amber); font-size: 11.5px; }
 .conv { display: flex; flex-direction: column; gap: 20px; padding-bottom: 8px; }
 .conv.focus .trow, .conv.focus .tgroup, .conv.focus .ttodo { display: none; }
@@ -1165,6 +1164,9 @@ body.term-open { overflow: hidden; }
 .ckeys .qk { width: 36px; height: 32px; padding: 0; justify-content: center; }
 .ckeys .qk .ico { width: 18px; height: 18px; color: var(--muted); }
 .ckeys .qk:hover .ico { color: var(--text); }
+.ckeys .qk.cfocus { width: auto; padding: 0 9px; gap: 5px; font-size: 12.5px; }
+.ckeys .qk.cfocus.on, .ckeys .qk.cfocus.on .ico { color: var(--text); }
+.ckeys .qk.cfocus.on { background: color-mix(in srgb, var(--accent) 20%, transparent); }
 .ckeys .qk.mic { width: auto; min-width: 44px; padding: 0 11px; gap: 6px; background: var(--fill); border: 0; }
 .ckeys .qk.mic .ico { color: var(--red); }
 .mic { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
@@ -1407,6 +1409,7 @@ body.recording .ckeys > :not(.mic) { pointer-events: none; opacity: .4; }
   .ckeys { gap: 0; flex-wrap: nowrap; }
   .ckeys .qk { width: 38px; height: 40px; border-radius: 12px; } .ckeys .qk .ico { width: 21px; height: 21px; }
   .ckeys .qk.mic { min-width: 38px; height: 40px; padding: 0 8px; border-radius: 12px; }
+  .ckeys .qk.cfocus { width: 38px; padding: 0; } .ckeys .qk.cfocus span { display: none; }
   .cfield .mpick { gap: 0; } .cfield .mpill { padding: 0 7px; }
   .csend { width: 32px; height: 32px; } .csend .ico { width: 15px; height: 15px; }
   .cstop-sq { width: 10px; height: 10px; }
