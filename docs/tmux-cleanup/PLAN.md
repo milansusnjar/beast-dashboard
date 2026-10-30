@@ -23,7 +23,7 @@ Chat runners are still started inside tmux (`lib/headless.js`: `new-session` / `
 3. **Server removal:** scraping, send-keys, draft checks; keep `/api/hook`.
 4. **Runners under systemd-run** with tmux fallback.
 5. **Tests:** update/remove tests for removed paths; add tests for the systemd-run runner start and the fallback.
-6. **Docs:** README sections and screenshots that show the terminal-bound flow; regenerate screenshots and the demo with chat sessions only.
+6. **Docs:** README text that describes the terminal-bound flow. New screenshots and demo are a separate step after the release.
 7. **Review:** fresh reviewer agent on the whole branch, then release.
 
 ## Gates
