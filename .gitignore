@@ -7,3 +7,4 @@ docs/screenshots/*.tmp
 whisper/.venv/
 whisper/whisper.env
 probe/target/
+CLAUDE.local.md
