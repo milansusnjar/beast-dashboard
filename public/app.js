@@ -905,20 +905,28 @@ function ctxRing(pct, size = 18) {
 }
 function ctxMeter(name, cl) {
   const c = cl && cl.ctx; if (!c || !c.used) return null; const p = ctxPct(c);
-  return h('button', { class: 'ctxm ' + ctxLvl(p), title: `Context: ${c.used.toLocaleString()} of ${c.window.toLocaleString()} tokens (${p}%)\nClick to compact — Claude summarises the conversation and continues with a smaller context.`, onclick: () => compactSession(name) },
+  return h('button', { class: 'ctxm ' + ctxLvl(p), title: `Context: ${c.used.toLocaleString()} of ${c.window.toLocaleString()} tokens (${p}%)\nClick for compact, clear or a new chat.`, onclick: ev => ctxMenu(ev, name) },
     ctxRing(p), h('b', null, fmtTok(c.used)), h('span', { class: 'of' }, '/ ' + fmtTok(c.window)));
 }
 const canCompact = cl => !!cl && ['idle', 'needs-you'].includes(cl.state) && (cl.mode === 'chat' || !cl.draft);
-async function compactSession(name) {
+const notIdleWhy = cl => cl.draft && cl.mode !== 'chat' ? 'Clear the text typed in the terminal first' : 'Wait until Claude is idle';
+function ctxMenu(ev, name) {
   const cl = claudeOf(name); if (!cl) return;
-  if (!canCompact(cl)) return toast(cl.draft && cl.mode !== 'chat' ? 'Clear the text typed in the terminal first' : 'Wait until Claude is idle, then compact', 'err');
-  const c = cl.ctx; const p = ctxPct(c);
-  const ok = await confirmBox({ title: 'Compact the context?', who: sessWho(name), icon: 'compact', ok: 'Compact',
-    text: [c ? h('div', { class: 'cf-ctx ' + ctxLvl(p) }, h('div', { class: 'bar' }, h('i', { style: `width:${Math.max(p, 1)}%` })), h('span', null, `${c.used.toLocaleString()} of ${fmtTok(c.window)} tokens · ${p}%`)) : null,
-      'Claude replaces the conversation so far with a summary and keeps going in the same session. Takes a few seconds; the full history stays in the transcript.'].filter(Boolean) });
-  if (!ok) return;
-  try { await api('send', { session: name, text: '/compact' }); toast('Compacting…', 'ok'); } catch (e) { toast('Compact failed: ' + e.message, 'err'); }
+  const c = cl.ctx; const ok = canCompact(cl); const why = ok ? '' : notIdleWhy(cl).toLowerCase();
+  openMenu(ev, [
+    { header: c ? `Context · ${fmtTok(c.used)} of ${fmtTok(c.window)} · ${ctxPct(c)}%` : 'Context' },
+    { label: 'Compact', sub: 'summarise, keep going here', icon: ico('compact', 15), disabled: !ok, title: why || 'Claude replaces the conversation so far with a summary and keeps going in this session; the full history stays in the transcript', onclick: () => compactSession(name) },
+    cl.mode !== 'chat' ? { label: 'Clear', sub: 'empty context, same terminal', icon: ico('x', 15), disabled: !ok, title: why || 'starts over with an empty context in this terminal; the old conversation stays in its transcript', onclick: () => clearSession(name) } : null,
+    { label: 'New chat here', sub: 'fresh context, this one keeps running', icon: ico('plus', 15), onclick: () => newChatHere(name) },
+  ].filter(Boolean));
 }
+async function sendSlash(name, cmd, doing) {
+  const cl = claudeOf(name); if (!cl) return;
+  if (!canCompact(cl)) return toast(notIdleWhy(cl), 'err');
+  try { await api('send', { session: name, text: cmd }); toast(doing, 'ok'); } catch (e) { toast(cmd + ' failed: ' + e.message, 'err'); }
+}
+const compactSession = name => sendSlash(name, '/compact', 'Compacting…');
+const clearSession = name => sendSlash(name, '/clear', 'Context cleared');
 function newChatHere(name) {
   if (!FEAT.session) return newTerminalModal();
   FEAT.session.open('new', '', { here: name });
