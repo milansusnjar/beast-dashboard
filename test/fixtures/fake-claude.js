@@ -8,7 +8,7 @@ if (process.env.FAKE_BROKEN) { process.stderr.write('fake: broken build\n'); pro
 if (process.env.FAKE_NO_CONV && process.argv.includes('--resume')) { process.stderr.write(`No conversation found with session ID: ${process.argv[process.argv.indexOf('--resume') + 1]}\n`); process.exit(1); }
 const flag = f => process.argv.includes(f) ? process.argv[process.argv.indexOf(f) + 1] : null;
 let liveModel = flag('--model') ? 'claude-' + flag('--model') + '-9' : 'fake-model', liveEffort = flag('--effort') || 'high';
-const sid = process.argv[process.argv.indexOf(process.argv.includes('--resume') ? '--resume' : '--session-id') + 1];
+let sid = process.argv[process.argv.indexOf(process.argv.includes('--resume') ? '--resume' : '--session-id') + 1];
 const emit = o => process.stdout.write(JSON.stringify({ ...o, session_id: sid }) + '\n');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const waiting = new Map(), inbox = [];
@@ -34,6 +34,13 @@ function done(subtype = 'success', reason = 'completed') { emit({ type: 'result'
 async function turn(text, uuid) {
   aborted = false;
   remember(uuid);
+  if (text === '/clear') {
+    emit({ type: 'conversation_reset', new_conversation_id: '00000000-0000-4000-8000-000000000000', trigger: 'clear' });
+    sid = process.env.FAKE_CLEAR_ID || 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    emit({ type: 'system', subtype: 'init', model: 'fake-model', claude_code_version: process.env.FAKE_VERSION || '9.9.9', capabilities: ['interrupt_receipt_v1'] });
+    replay('<command-name>/clear</command-name>\n            <command-message>clear</command-message>\n            <command-args></command-args>', uuid);
+    done(); return;
+  }
   if (text === '/compact') {
     emit({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed', resetsAt: 1793275200, unifiedWindows: { five_hour: { utilization: 0.07 }, seven_day: { utilization: 0.3 } } } });
     emit({ type: 'system', subtype: 'compact_boundary', compact_metadata: { trigger: 'manual', pre_tokens: 5020, post_tokens: 1234 } });

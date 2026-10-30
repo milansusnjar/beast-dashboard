@@ -530,7 +530,7 @@ function renderTermPanel(force) {
   const extra = [...TERM.frames.keys()].filter(k => !known.has(k));
   // The list and the bar are rebuilt only when something they show actually changed. Rebuilding them on every
   // 3-second state tick blurred the terminal iframe (the focus bug) and made the sidebar flicker.
-  const key = JSON.stringify([TERM.active, TERM.showList, TERM.view[TERM.active] || '', TERM.focus, S3.all.map(x => [x.name, x.claude?.mode, x.claude?.state, x.claude?.title, x.claude?.label, x.claude?.firstPrompt, (x.claude?.projects || []).join(), x.claude?.draft, x.claude?.model, x.claude?.effort, x.claude?.branch, x.claude?.worktree?.name, x.claude?.version, (S.settings.muted || []).includes(x.name), Math.floor((x.cpu || 0) / 10), x.ports.map(p => p.port)]), S.claude?.installed, S.claude?.update?.version, CLAUDE_UPGRADING, extra, [...TERM.frames.keys()], S.runtime.sessions.filter(s => s.name === TERM.active).map(s => s.project + (gitOf(byId()[s.project] || {})?.dirty || 0) + '|' + (s.claude?.ctx ? Math.round(s.claude.ctx.used / 1000) + '/' + s.claude.ctx.window : '')), feat('termBarKey', TERM.active)]);
+  const key = JSON.stringify([TERM.active, TERM.showList, TERM.view[TERM.active] || '', TERM.focus, S3.all.map(x => [x.name, x.claude?.mode, x.claude?.state, x.claude?.title, x.claude?.label, x.claude?.firstPrompt, (x.claude?.projects || []).join(), x.claude?.draft, x.claude?.model, x.claude?.effort, x.claude?.branch, x.claude?.worktree?.name, x.claude?.version, x.claude?.wantVersion, (S.settings.muted || []).includes(x.name), Math.floor((x.cpu || 0) / 10), x.ports.map(p => p.port)]), S.claude?.installed, S.claude?.update?.version, CLAUDE_UPGRADING, extra, [...TERM.frames.keys()], S.runtime.sessions.filter(s => s.name === TERM.active).map(s => s.project + (gitOf(byId()[s.project] || {})?.dirty || 0) + '|' + (s.claude?.ctx ? Math.round(s.claude.ctx.used / 1000) + '/' + s.claude.ctx.window : '')), feat('termBarKey', TERM.active)]);
   const frames = $('#term-frames'); const chatOn = TERM.active && chatMode(TERM.active);
   for (const [k, f] of TERM.frames) { if (!f.isConnected) frames.append(f); f.classList.toggle('on', k === TERM.active && !chatOn); }
   $('#term-chat').classList.toggle('hidden', !chatOn);
@@ -591,6 +591,7 @@ function renderTermPanel(force) {
   const actName = act ? sessTitle(act) : TERM.active;
   const isChatS = cl && cl.mode === 'chat'; const logOn = isChatS && TERM.view[TERM.active] === 'term';
   const muted = (S.settings.muted || []).includes(TERM.active);
+  const wantV = cl ? (cl.mode === 'chat' ? cl.wantVersion || S.claude?.installed : S.claude?.installed) : null;
   const sub = cl && cl.title && cl.title !== actName ? h('span', { class: 'dim desk ttitle', title: cl.title }, cl.title) : !cl && act ? h('span', { class: 'dim mono desk ttitle', style: 'font-size:11.5px' }, home(act.cwd)) : null;
   if (TERM.active) barAdd(h('button', { class: 'btn sm ghost icon desk', title: 'back to the dashboard — every session keeps running  (Esc)', onclick: closeTermPanel }, ico('back', 15)),
     h('button', { class: 'btn sm ghost icon desk' + (TERM.focus ? ' on' : ''), title: TERM.focus ? 'show the rail again' : 'focus mode — hide the rail with every session (screen sharing)', onclick: () => setFocus(!TERM.focus) }, ico('sidebar', 15)),
@@ -602,7 +603,7 @@ function renderTermPanel(force) {
     logOn ? h('button', { class: 'btn sm', title: 'you are looking at the runner log — back to the conversation', onclick: () => setMode('chat') }, ico('chat', 13), 'Back to chat') : null,
     cl && cl.state === 'limit' && act ? h('button', { class: 'btn sm primary', title: 'start the other account in this folder with a summary of where this one stopped', onclick: () => handoff({ name: TERM.active, account: cl.account, project: act.project }) }, gl('⇄ Hand off')) : null,
     cl && S.claude?.update ? h('button', { class: 'btn sm dirtybtn desk', disabled: CLAUDE_UPGRADING, title: CLAUDE_UPGRADING ? 'mise upgrade claude is running…' : `Claude Code ${S.claude.update.version} is out — install it (mise upgrade claude), then restart this session (same conversation, --resume)`, onclick: () => updateClaude({ name: TERM.active, project: act?.project }) }, ico('refresh', 13), CLAUDE_UPGRADING ? 'installing…' : S.claude.update.version) :
-    cl && cl.version && S.claude?.installed && cl.version !== S.claude.installed ? h('button', { class: 'btn sm dirtybtn desk', title: `running Claude Code ${cl.version}, ${S.claude.installed} is installed — restart this session (same conversation, --resume)`, onclick: () => restartSession({ name: TERM.active, project: act?.project }) }, ico('refresh', 13), S.claude.installed) : null,
+    cl && cl.version && wantV && cl.version !== wantV ? h('button', { class: 'btn sm dirtybtn desk', title: `running Claude Code ${cl.version} — restart on ${wantV} (same conversation)`, onclick: () => restartSession({ name: TERM.active, project: act?.project }) }, ico('refresh', 13), wantV) : null,
     ...feat('termBar', TERM.active),
     actProj ? h('button', { class: 'btn sm ghost projbtn', title: 'project details — changes, files, logs, branches, docker', onclick: () => openDrawer(actProj.id, actDirty ? 'changes' : 'overview') }, ico('folder', 14), h('span', { class: 'desk' }, 'Project'), actDirty ? h('span', { class: 'pill warn' }, '± ' + actDirty) : null) : null,
     ...(cl ? feat('chatBar', TERM.active) : []),
@@ -1002,16 +1003,22 @@ function bgText(bg) {
 async function updateClaude(it) {
   const v = S.claude?.update?.version; if (!v) return;
   if (CLAUDE_UPGRADING) { toast('mise upgrade claude is still running…'); return; }
-  if (!confirm(`Update Claude Code to ${v}${it ? ` and restart ${it.name}` : ''}?\n\nRuns mise upgrade claude${it ? ', then /exit and a relaunch with --resume on the same conversation' : ''}. Other sessions get a restart button. Takes up to a minute.`)) return;
+  if (!confirm(`Update Claude Code to ${v}${it ? ` and restart ${it.name}` : ''}?\n\nRuns mise upgrade claude${it ? ', then restarts this chat on it (same conversation)' : ''}. Other sessions get a restart button. Takes up to a minute.`)) return;
   CLAUDE_UPGRADING = true; renderTermPanel();
   toast('mise upgrade claude …');
   const r = await act('mise upgrade claude → ' + v, api('claude-upgrade', {})).catch(() => null);
   CLAUDE_UPGRADING = false; renderTermPanel();
-  if (it && r?.ok) act('Restart ' + (it.project || it.name), api('claude-restart', { session: it.name }));
+  if (it && r?.ok) restartChatNow(it);
 }
 async function restartSession(it) {
-  if (!await confirmBox({ title: 'Restart Claude?', who: sessWho(it.name), icon: 'refresh', ok: 'Restart', text: 'It sends /exit, waits, then relaunches with --resume on the same conversation (picks up the installed update). Takes ~10 s.' })) return;
-  act('Restart ' + it.project, api('claude-restart', { session: it.name }));
+  const want = claudeOf(it.name)?.wantVersion || S.claude?.installed;
+  if (!await confirmBox({ title: 'Restart Claude?', who: sessWho(it.name), icon: 'refresh', ok: 'Restart', text: [`Stops Claude in this chat and starts it again${want ? ' on Claude Code ' + want : ''}.`, 'The chat continues the same conversation. A reply that is still being written is cut off.'] })) return;
+  restartChatNow(it);
+}
+async function restartChatNow(it) {
+  toast('Restarting ' + (it.project || it.name) + '…');
+  try { const r = await api('claude-restart', { session: it.name }); toast(r.version ? 'Restarted on Claude Code ' + r.version : 'Restarted', 'ok'); }
+  catch (e) { toast('Restart failed: ' + e.message, 'err'); }
 }
 async function restartIdleTerms(btn, names) {
   if (!confirm(`Restart Claude in ${names.length} idle terminal session${names.length > 1 ? 's' : ''}?\n\n${names.join('\n')}\n\nEach one gets /exit, then claude --resume on the same conversation, one after another (~10 s each).`)) return;

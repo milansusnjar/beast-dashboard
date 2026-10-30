@@ -40,7 +40,7 @@ test('hello, send and streamed deltas; child started with clean env and --sessio
   const r = runner(t); const k = await client(t, r.sock);
   k.c.write('{"op":"hello"}\n');
   const snap = await k.until(e => e.ev === 'snapshot');
-  assert.strictEqual(snap.sessionId, SID); assert.strictEqual(snap.v, 1);
+  assert.strictEqual(snap.sessionId, SID); assert.strictEqual(snap.v, 2);
   assert.strictEqual((await k.op({ op: 'send', text: 'hi there' })).ev, 'ack');
   await k.until(e => e.ev === 'state' && e.state === 'working');
   const res = await k.until(e => e.ev === 'result');
@@ -418,6 +418,42 @@ test('chat names: claude-chat-YYMMDD-HHMM, -n on collision, -company suffix', as
   assert.strictEqual(await chatName(d, 'company', async () => false), 'claude-chat-261029-0905-company');
   const taken = new Set(['claude-chat-261029-0905', 'claude-chat-261029-0905-2']);
   assert.strictEqual(await chatName(d, 'personal', async n => taken.has(n)), 'claude-chat-261029-0905-3');
+});
+
+test('/clear moves the chat to the new conversation id: snapshot follows it and a restart resumes it, not the first id', async t => {
+  const NEW = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+  const r = runner(t, 'resume', { FAKE_CLEAR_ID: NEW }); const k = await client(t, r.sock);
+  await k.op({ op: 'send', text: 'hello' }); await k.until(e => e.ev === 'result');
+  k.clear(); await k.op({ op: 'send', text: '/clear' });
+  const moved = await k.until(e => e.ev === 'snapshot' && e.sessionId === NEW);
+  assert.strictEqual(moved.v, 2);
+  await k.until(e => e.ev === 'result');
+  assert.match(r.log(), new RegExp(`conversation is now ${NEW} \\(was ${SID}\\)`));
+  k.clear(); await k.op({ op: 'restart' });
+  await k.until(e => e.ev === 'snapshot' && e.sessionId === NEW && e.childAt > 0 && e.state === 'idle');
+  await k.op({ op: 'send', text: 'after' }); await k.until(e => e.ev === 'result');
+  const a = r.args().filter(x => x.argv);
+  assert.ok(a[a.length - 1].argv.includes('--resume') && a[a.length - 1].argv.includes(NEW) && !a[a.length - 1].argv.includes(SID));
+  assert.match(r.log(), new RegExp(`claude resume ${NEW}`));
+});
+
+test('the snapshot knows the version right after a start, from the binary path or from claude on PATH', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bd-hl-')); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const versions = path.join(dir, 'versions'), bin = path.join(dir, 'bin'); fs.mkdirSync(versions); fs.mkdirSync(bin);
+  const v1 = fakeVersion(versions, '3.4.5'); fs.symlinkSync(v1, path.join(bin, 'claude'));
+  const sock = path.join(dir, 'run', 's.sock');
+  const p = spawn(process.execPath, [RUNNER, '--sock', sock, '--cwd', dir, '--session-id', SID, '--start', 'new'], { env: { ...process.env, PATH: bin + ':/usr/bin:/bin' }, stdio: 'ignore' });
+  t.after(() => { try { p.kill('SIGKILL'); } catch {} });
+  const k = await client(t, sock);
+  k.c.write('{"op":"hello"}\n');
+  const first = await k.until(e => e.ev === 'snapshot');
+  assert.strictEqual(first.claude, 'claude'); assert.strictEqual(first.version, '3.4.5'); assert.ok(first.childAt > 0);
+  const v2 = fakeVersion(versions, '3.4.6');
+  assert.strictEqual((await k.op({ op: 'restart', claude: 'claude' })).ev, 'error');
+  k.clear(); const t0 = Date.now();
+  assert.strictEqual((await k.op({ op: 'restart', claude: v2 })).ev, 'ack');
+  const after = await k.until(e => e.ev === 'snapshot' && e.childAt >= t0);
+  assert.strictEqual(after.version, '3.4.6'); assert.strictEqual(after.claude, v2);
 });
 
 test('--start fork forks the old conversation into the new id once, then resumes the new id', async t => {

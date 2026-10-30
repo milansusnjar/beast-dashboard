@@ -134,7 +134,9 @@ async function rollNext(gen) {
   const name = rollQueue.find(quietChat);
   if (name) {
     rollQueue = rollQueue.filter(n => n !== name);
-    const r = await headless.upgrade(name, st.bin).catch(e => ({ ok: false, error: e.message }));
+    let r = await headless.upgrade(name, st.bin).catch(e => ({ ok: false, error: e.message }));
+    if (gen !== rollGen) return;
+    if (!r.ok && r.error === 'unknown op') r = await oldRunnerUpgrade(name);
     if (gen !== rollGen) return;
     if (r.ok) ROLL.done++; else { ROLL.failed++; console.error(`chat upgrade ${name}: ${r.error}`); }
   }
@@ -142,6 +144,23 @@ async function rollNext(gen) {
   if (rollQueue.length) rollTimer = setTimeout(rollNext, name ? 2000 : 15000, gen); else pushState(false);
 }
 const SWITCHING = new Set(); const SWITCHED = new Map();
+const pathVersion = () => claudever.status().current || CLAUDE_VERSION;
+const chatBinFor = () => { const st = claudever.status(); return st.using && path.isAbsolute(st.bin || '') ? st.bin : null; };
+async function restartChat(name) {
+  SWITCHING.add(name); SWITCHED.set(name, Date.now());
+  try {
+    const r = await actions.restartClaude(name, claude.get(name), chatBinFor()).catch(e => ({ ok: false, error: e.message }));
+    SWITCHED.set(name, Date.now());
+    if (!r.ok) return r;
+    const { live, ...rest } = r;
+    return { ...rest, version: headless.liveVersion(live, pathVersion()) };
+  } finally { SWITCHING.delete(name); setTimeout(tick, 500); setTimeout(tick, 3000); }
+}
+async function oldRunnerUpgrade(name) {
+  const r = await restartChat(name);
+  if (r.ok) console.log(`chat upgrade ${name}: its runner predates live upgrades, restarted it on the current runner`);
+  return r;
+}
 let chatPushTimer = null;
 headless.onEvent(() => { if (!chatPushTimer) chatPushTimer = setTimeout(() => { chatPushTimer = null; tick(); }, 150); });
 
@@ -374,6 +393,8 @@ function liveModel(s) {
   const lv = s.claude.mode === 'chat' ? headless.live(s.name) : null;
   if (!lv || lv.stale) return;
   if (lv.model) s.claude.model = lv.model;
+  const v = headless.liveVersion(lv, pathVersion()); if (v) s.claude.version = v;
+  s.claude.wantVersion = claudever.status().using || CLAUDE_VERSION;
   if (lv.effort) s.claude.effort = lv.effort;
   s.claude.inbox = Array.isArray(lv.inbox) ? lv.inbox.length : 0;
 }
@@ -387,6 +408,7 @@ async function decorateClaude(snap) {
   for (const s of snap.sessions) if (s.paneCmd === 'claude' && isChat(s.name) && !SWITCHING.has(s.name) && !(Date.now() - (SWITCHED.get(s.name) || 0) < 15000)) claude.clearChat(s.name);
   await claude.refreshPeeks(cl);
   headless.watch(cl.filter(isChat));
+  for (const n of cl) if (isChat(n)) { const L = headless.live(n); if (L && !L.stale && L.v >= 2) claude.followChat(n, L.sessionId); }
   claude.reconcile(names);
   claude.refreshTitles();
   for (const s of snap.sessions) if (isClaude(s)) { s.claude = claude.info(s.name, s.activity); s.claude.usage = usage.bySession(s.claude.sessionId); s.claude.ctx = ctxOf(s); liveModel(s); Object.assign(s.claude, await whereIs(s)); if (s.claudeVersion) s.claude.version = s.claudeVersion; const st = settle.of(s.name); if (st && !settle.wake(s.name, s.claude.state, s.claude.since || 0)) { s.claude.settled = st; s.claude.needsYou = false; } }
@@ -937,7 +959,7 @@ async function api(req, res, url) {
         const inf = claude.info(name);
         if (!['idle', 'needs-you'].includes(inf.state)) return json(res, 409, { error: 'busy' });
       }
-      const r = await actions.restartClaude(name, claude.get(name)); setTimeout(tick, 1500); setTimeout(tick, 5000); return json(res, r.ok ? 200 : 500, r);
+      const r = await restartChat(name); return json(res, r.ok ? 200 : 500, r);
     }
     case 'claude-switch': {
       const name = String(b.session || ''); const rec = claude.get(name);

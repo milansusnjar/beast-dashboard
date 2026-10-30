@@ -29,6 +29,8 @@ let restarting = false, heard = false, unheard = [], upgradeAfterTurn = false, u
 const queued = [], inbox = [], tookIn = new Set(), mine = new Set();
 let msgSeq = 0, dying = null, lastOut = 0, endAt = 0, sweepTimer = null;
 const SWEEP_MS = +process.env.BD_HL_SWEEP_MS || 4000;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+let current = SID, childAt = 0;
 const MODELS = ['default', 'opus', 'sonnet', 'haiku', 'fable'], EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 let chosenModel = null, chosenEffort = null;
 const ctlWait = new Map();
@@ -41,8 +43,8 @@ const clean = s => String(s).replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]|\x1b[\]P^_][^\x
 const clock = () => new Date().toTimeString().slice(0, 8);
 
 function snapshot() {
-  return { ev: 'snapshot', v: 1, sessionId: SID, state: S.state, since: S.since, turn: S.turn, pending: [...pending.values()].map(p => p.req), inbox: inboxList(),
-    rate: S.rate, ctx: S.ctx, model: S.model, effort: S.effort, version: S.version, claude: CLAUDE, caps: S.caps, error: S.error };
+  return { ev: 'snapshot', v: 2, sessionId: current, state: S.state, since: S.since, turn: S.turn, pending: [...pending.values()].map(p => p.req), inbox: inboxList(),
+    rate: S.rate, ctx: S.ctx, model: S.model, effort: S.effort, version: S.version, claude: CLAUDE, childAt, caps: S.caps, error: S.error };
 }
 function inboxList() { return inbox.map(m => ({ id: m.id, text: m.text, at: m.at })); }
 function emitInbox() { emit({ ev: 'inbox', inbox: inboxList() }); }
@@ -59,14 +61,29 @@ function childEnv() {
 const configDir = () => ACCOUNT === 'company' ? path.join(process.env.HOME || '', '.claude-company') : path.join(process.env.HOME || '', '.claude');
 const forked = () => fs.existsSync(path.join(configDir(), 'projects', CWD.replace(/[^A-Za-z0-9]/g, '-'), SID + '.jsonl'));
 
+function binVersion(bin) {
+  let p = path.isAbsolute(bin) ? bin : (process.env.PATH || '').split(':').filter(Boolean).map(d => path.join(d, bin)).find(executable);
+  if (!p) return null;
+  try { p = fs.realpathSync(p); } catch { return null; }
+  const m = path.basename(p).match(/^(\d+\.\d+\.\d+)$/);
+  return m ? m[1] : null;
+}
+
+function follow(id) {
+  if (!UUID.test(id || '') || id === current || id === FORK) return;
+  line(dim(`[${clock()}] conversation is now ${id} (was ${current})`));
+  current = id; hasConversation = true;
+  emit(snapshot());
+}
+
 function startChild() {
-  const fork = FORK && !forked();
+  const fork = FORK && current === SID && !forked();
   if (FORK && !fork) hasConversation = true;
   const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--replay-user-messages',
-    '--permission-prompt-tool', 'stdio', '--dangerously-skip-permissions', ...(fork ? ['--resume', FORK, '--fork-session', '--session-id', SID] : [hasConversation ? '--resume' : '--session-id', SID]),
+    '--permission-prompt-tool', 'stdio', '--dangerously-skip-permissions', ...(fork ? ['--resume', FORK, '--fork-session', '--session-id', SID] : [hasConversation ? '--resume' : '--session-id', current]),
     ...(chosenModel ? ['--model', chosenModel] : []), ...(chosenEffort ? ['--effort', chosenEffort] : [])];
-  line(dim(`[${clock()}] claude ${fork ? 'fork of ' + FORK + ' as' : hasConversation ? 'resume' : 'new session'} ${SID}  (${ACCOUNT}, ${CWD})`));
-  stderrTail = ''; heard = false; unheard = []; S.version = null; upgradeAfterTurn = false; sentWhileWorking = false; clearTimeout(upgradeTimer);
+  line(dim(`[${clock()}] claude ${fork ? 'fork of ' + FORK + ' as' : hasConversation ? 'resume' : 'new session'} ${fork ? SID : current}  (${ACCOUNT}, ${CWD})`));
+  stderrTail = ''; heard = false; unheard = []; S.version = binVersion(CLAUDE); S.error = null; childAt = Date.now(); upgradeAfterTurn = false; sentWhileWorking = false; clearTimeout(upgradeTimer);
   const resumed = hasConversation;
   const p = spawn(CLAUDE, args, { cwd: CWD, env: childEnv(), stdio: ['pipe', 'pipe', 'pipe'] });
   child = p;
@@ -104,7 +121,7 @@ function startChild() {
     if (code && resumed && !heard && /no conversation found/i.test(stderrTail)) {
       const lost = unheard;
       child = null; hasConversation = false;
-      line(dim(`[${clock()}] no saved conversation ${SID}, starting it new`));
+      line(dim(`[${clock()}] no saved conversation ${current}, starting it new`));
       startChild();
       for (const m of lost) deliver(m, true);
       return;
@@ -112,6 +129,7 @@ function startChild() {
     ended(p, sig || String(code));
   });
   setState(S.turn ? 'working' : 'idle');
+  emit(snapshot());
 }
 
 function ended(p, reason) {
@@ -194,6 +212,7 @@ function onChildLine(l, old) {
     return;
   }
   if (o.type === 'result') {
+    follow(o.session_id);
     const mu = o.modelUsage || {}; const m = mu[S.model] || Object.values(mu).sort((a, b) => (b.contextWindow || 0) - (a.contextWindow || 0))[0];
     if (m && m.contextWindow) setCtx({ window: m.contextWindow });
     const ms = S.turn ? Date.now() - S.turn.startedAt : o.duration_ms || 0;
@@ -220,6 +239,7 @@ function onChildLine(l, old) {
     return;
   }
   if (o.type === 'system' && o.subtype === 'init') {
+    follow(o.session_id);
     S.model = o.model || null; S.version = o.claude_code_version || null; S.caps = Array.isArray(o.capabilities) ? o.capabilities : [];
     S.error = S.caps.includes('interrupt_receipt_v1') ? null : `claude ${S.version || '?'} may not support the headless control protocol (no interrupt_receipt_v1)`;
     emit(snapshot());
@@ -434,7 +454,13 @@ function onClientOp(c, m) {
       } else respond(m.rid, { behavior: 'allow', updatedInput: p.input });
       return ack();
     }
-    case 'restart': restart(); return ack();
+    case 'restart': {
+      if (m.claude !== undefined) {
+        if (typeof m.claude !== 'string' || !path.isAbsolute(m.claude) || !executable(m.claude)) return fail('claude must be an absolute path to an executable file');
+        CLAUDE = m.claude; upgradeAfterTurn = false; clearTimeout(upgradeTimer);
+      }
+      restart(); return ack();
+    }
     case 'model': {
       if (!MODELS.includes(m.model)) return fail('model must be one of ' + MODELS.join(', '));
       setModel(m.model).then(e => e ? fail(e) : ack());
