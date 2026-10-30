@@ -2678,6 +2678,7 @@ function paletteItems() {
     { kind: 'action', label: 'Settings', sub: '', icon: '⚙', hay: 'settings config push notifications', run: settingsModal, rank: 33 },
     { kind: 'action', label: 'Rescan projects', sub: '', icon: '↻', hay: 'rescan projects', run: () => act('Rescan', api('rescan', {})), rank: 34 },
     { kind: 'action', label: 'Search conversations', sub: 'type ? followed by words — every session, both accounts', icon: '🔍', hay: 'search conversations transcripts find', run: () => setTimeout(() => openPalette('search'), 0), rank: 27 },
+    ...(FEAT.newproj ? [{ kind: 'action', label: 'New project', sub: 'make a folder, git init, then start a chat in it', icon: '＋', hay: 'new project create folder repo init', run: () => FEAT.newproj.open(), rank: 29 }] : []),
     { kind: 'action', label: 'Projects', sub: 'all projects, filters, search  (p)', icon: '▤', hay: 'projects view page', run: () => setView('projects'), rank: 29 },
     { kind: 'action', label: 'Home', sub: 'stats · agents · running  (h)', icon: '⌂', hay: 'home dashboard', run: () => setView('home'), rank: 28 });
   items.push(...feat('paletteItems'));
