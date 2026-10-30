@@ -545,7 +545,7 @@ function renderTermPanel(force) {
     const isActive = TERM.active === it.name; const opened = TERM.frames.has(it.name); const cl = it.claude; const i = kind === 'claude' ? instOf(it) : null;
     const where = i && (i.wt ? h('span', { class: 'grp wt', title: i.wt.path ? 'git worktree · ' + home(i.wt.path) : 'git worktree' }, '⎇ ' + i.wt.name + (i.branch && i.branch !== i.wt.name ? ' · ' + i.branch : '')) : i.branch ? h('span', { class: 'grp', title: 'branch' }, '⎇ ' + i.branch) : null);
     const name = kind === 'claude' ? (sub ? h('span', { class: 'inst' }, i.label) : isNewChat(it.name) ? chatTitle(cl) : (cl?.label || it.project)) : kind === 'dev' ? it.project : it.name.startsWith('sh-') ? it.name : it.name;
-    const tag = kind === 'claude' ? [h('span', { class: 'badge tag acc ' + it.account }, acct(it.account)), cl && cl.mode === 'chat' ? h('span', { class: 'badge tag chat' }, 'chat') : null] : kind === 'dev' ? h('span', { class: 'grp' }, it.label) : it.name.startsWith('sh-') ? h('span', { class: 'grp' }, 'bash') : null;
+    const tag = kind === 'claude' ? (multiAcct() ? h('span', { class: 'badge tag acc ' + it.account }, acct(it.account)) : null) : kind === 'dev' ? h('span', { class: 'grp' }, it.label) : it.name.startsWith('sh-') ? h('span', { class: 'grp' }, 'bash') : null;
     const line2 = cl ? [h('span', { class: 'cst mini ' + cl.state }, STATE_ICON[cl.state] || '·', ' ', STATE_LABEL[cl.state] || cl.state), cl.model ? h('span', { class: 'mdl' }, modelName(cl.model)) : null, !sub && i && i.n ? h('span', { class: 'grp' }, '#' + i.n) : null]
       : [h('span', { class: 'grp' }, [it.group, it.org].filter(Boolean).join(' · ') || home(it.cwd)), h('span', { class: 'grp' }, `${ago(it.started)} · ${it.cpu.toFixed(0)}% · ${fmtB(it.mem)}`)];
     const others = cl && isNewChat(it.name) ? (cl.projects || []).filter(x => x !== it.pid).slice(0, 2).map(x => h('span', { class: 'grp pchip' }, byId()[x]?.name || x)) : [];
@@ -982,6 +982,7 @@ const home = c => (c || '').replace(/^\/home\/[^/]+\//, '~/');
 // Display name of a Claude account id ('personal' | 'company') — Settings → Accounts.
 const acct = a => (a && S.settings?.accountLabels?.[a]) || a || '';
 const acctL = a => acct(a).toLowerCase();
+const multiAcct = () => (S.host?.accounts?.length ?? 2) > 1;
 const attachCmd = name => `ssh ${S.settings?.sshHost || S.host?.hostname || 'server'} -t tmux attach -t ${name}`;
 const copyAttach = name => { const t = S.settings?.claudeAttach; const host = S.settings?.sshHost || S.host?.hostname || 'server'; if (t && name.startsWith('claude-')) return t.replace('{c}', name.endsWith('-company') ? '-c ' : '').replace('{name}', name.replace(/^claude-/, '').replace(/-company$/, '')); return S.settings?.attachVia === 'mosh' ? `mosh ${host} -- tmux attach -t ${name}` : attachCmd(name); };
 // health from the server probe: ok (2xx-4xx) · warn (5xx / no answer) · down (nothing accepts the connection) · tcp (up, not HTTP)
@@ -1209,7 +1210,7 @@ function card(p) {
   const claudes = r.sessions.filter(s => isClaudeSession(s)); const devs = r.sessions.filter(s => !isClaudeSession(s)); const conts = r.containers.filter(c => c.state === 'running');
   // what is live, as small chips: Claude sessions (click -> terminal), dev servers with their port, containers
   const liveRow = claudes.length || devs.length || conts.length || r.external.length ? h('div', { class: 'live-row' },
-    ...claudes.map(s => h('button', { class: 'lchip cl st-' + (s.claude?.state || 'unknown'), title: `${s.name} · ${STATE_LABEL[s.claude?.state] || ''}${s.claude?.title ? ' — ' + s.claude.title : ''}`, onclick: () => openTerm(s.name) }, h('i', { class: 'd' }), 'Claude', s.claude?.mode === 'chat' ? h('span', { class: 'badge tag chat' }, 'chat') : null, h('span', { class: 'badge tag acc ' + (s.claude?.account || (s.name.endsWith('-company') ? 'company' : 'personal')) }, acct(s.claude?.account || (s.name.endsWith('-company') ? 'company' : 'personal'))))),
+    ...claudes.map(s => h('button', { class: 'lchip cl st-' + (s.claude?.state || 'unknown'), title: `${s.name} · ${STATE_LABEL[s.claude?.state] || ''}${s.claude?.title ? ' — ' + s.claude.title : ''}`, onclick: () => openTerm(s.name) }, h('i', { class: 'd' }), 'Claude', multiAcct() ? h('span', { class: 'badge tag acc ' + (s.claude?.account || (s.name.endsWith('-company') ? 'company' : 'personal')) }, acct(s.claude?.account || (s.name.endsWith('-company') ? 'company' : 'personal'))) : null)),
     ...devs.map(s => h('button', { class: 'lchip dev', title: (s.cmd || s.current || '') + ' · logs', onclick: () => openDrawer(p.id, 'logs', s.name) }, h('i', { class: 'd' }), s.label, ...(s.ports || []).filter(x => !x.ephemeral).slice(0, 2).map(x => portChip(x)))),
     ...r.external.map(e => h('span', { class: 'lchip ext', title: e.cmd }, h('i', { class: 'd' }), e.label || e.comm, ...(e.ports || []).filter(x => !x.ephemeral).slice(0, 2).map(x => portChip(x)))),
     conts.length ? h('button', { class: 'lchip dock', title: conts.map(c => c.service || c.name).join(', '), onclick: () => openDrawer(p.id, 'docker') }, h('i', { class: 'd' }), `${conts.length} container${conts.length > 1 ? 's' : ''}`) : null) : null;
@@ -2509,7 +2510,7 @@ function renderRail() {
     return h('button', { class: 'rrow k-' + kind + ' st-' + st + (tuck ? ' sub' : '') + (act === it.name ? ' on' : '') + (cl?.needsYou ? ' need' : '') + (cl?.settled ? ' settled' : ''), title: it.name + (cl ? ' · ' + (STATE_LABEL[st] || st) : '') + (cl?.settled ? ' · ' + (cl.settled.until ? 'snoozed' : 'settled') : ''), onclick: () => openTerm(it.name) },
       kind === 'claude' && !tuck ? h('span', { class: 'rav' }, avatar(it.pid, 'sm'), h('i', { class: 'rdot' })) : h('i', { class: 'rdot' }),
       h('span', { class: 'rtx' }, h('span', { class: 'rnm' }, h('b', null, nm), i && i.n && !(tuck && !cl?.label && !i.wt) ? h('em', null, '#' + i.n) : null, i && i.wt ? h('em', { class: 'wt' }, '⎇ ' + i.wt.name) : null),
-        h('span', { class: 'rln2' }, h('span', { class: 'rsub' + (st === 'working' ? ' mono' : '') }, sub(it)), cl && cl.mode === 'chat' ? h('span', { class: 'rchat', title: 'chat session (headless)' }, 'chat') : null, kind === 'claude' ? h('span', { class: 'racc ' + it.account, title: 'Claude Code account: ' + acct(it.account) }, acct(it.account)) : null)),
+        h('span', { class: 'rln2' }, h('span', { class: 'rsub' + (st === 'working' ? ' mono' : '') }, sub(it)), kind === 'claude' && multiAcct() ? h('span', { class: 'racc ' + it.account, title: 'Claude Code account: ' + acct(it.account) }, acct(it.account)) : null)),
       cl ? h('span', { class: 'redit', role: 'button', title: 'rename this session', onclick: ev => { ev.stopPropagation(); renameDialog(it.name); } }, ico('pencil', 13)) : null);
   };
   const out = [];
