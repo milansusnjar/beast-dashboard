@@ -1434,7 +1434,9 @@ body.recording .ckeys > :not(.mic) { pointer-events: none; opacity: .4; }
   .termbar .btn.sm.desk:not(.projbtn) .ico { width: 16px; height: 16px; }
   .termbar { gap: 8px; }
 }
-@media (min-width: 901px) and (max-width: 1500px) { .termbar .ag-tag, .termbar .ttitle { display: none; } }
+@media (min-width: 901px) and (max-width: 1500px) { .termbar .ag-tag, .termbar .ttitle { display: none; } .termbar .segb .desk, .termbar .projbtn .desk { display: none; } .termbar .segb { padding: 0 10px; } .termbar .tid .tacc { display: none; } }
+.termbar .tid { overflow: hidden; flex: 0 1 auto; } .termbar .tid .tname { flex: 0 1 auto; min-width: 64px; }
+.termbar .seg, .termbar .cst { flex: none; }
 /* while a session fills the main column, the rail highlights the session, not the view underneath */
 body.term-open .rail .navb.on { background: transparent; color: var(--muted); }
 body.term-open .rail .navb.on .ico { color: inherit; opacity: .85; }
