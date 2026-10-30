@@ -7,6 +7,7 @@ const { spawn } = require('child_process');
 const { run, readBody, corrupted, STATE } = require('./lib/util');
 const settings = require('./lib/settings');
 const discovery = require('./lib/discovery');
+const newproject = require('./lib/newproject');
 const git = require('./lib/gitinfo');
 const rt = require('./lib/runtime');
 const sys = require('./lib/sys');
@@ -1162,6 +1163,17 @@ async function api(req, res, url) {
     case 'project': { // per-project overrides: label, hidden, pin, commands
       if (!proj(b.id)) return json(res, 404, { error: 'no project' });
       const { id, ...patch } = b; settings.setProjectOverride(id, patch); await rescan(); pushState(true); return json(res, 200, { ok: true });
+    }
+    case 'project-new': {
+      const s = settings.get(); const c = newproject.check(b, s);
+      if (!c.ok) return json(res, c.status, { ok: false, error: c.error });
+      const r = await newproject.create(c, s.devRoot);
+      if (!r.ok) return json(res, r.status, { ok: false, error: r.error });
+      if (c.newOrg && !(s.orgAccounts || {})[c.org]) settings.update({ orgAccounts: { ...(s.orgAccounts || {}), [c.org]: c.account } });
+      for (let i = 0; scanning && i < 100; i++) await new Promise(ok => setTimeout(ok, 100));
+      await rescan(); pushState(true);
+      const p = projects.find(x => x.path === c.target);
+      return json(res, 200, { ok: true, id: p ? p.id : null, path: c.target, rel: c.rel.split(path.sep).join('/'), account: c.account });
     }
     case 'rescan': { await rescan(); await tick(); pushState(true); return json(res, 200, { ok: true, count: projects.length }); }
     case 'refresh-git': { await refreshGit(true); pushState(true); return json(res, 200, { ok: true }); }
