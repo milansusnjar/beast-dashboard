@@ -7,8 +7,8 @@ FEAT.newproj = (() => {
 
   function folders() {
     const ps = S.projects.filter(p => !p.hidden);
-    const isProj = new Set(ps.map(p => [p.org, p.group, p.dirName].filter(Boolean).join('/')));
-    const orgs = [...new Set(ps.map(p => p.org).filter(Boolean))].sort();
+    const isProj = new Set(S.projects.map(p => p.rel));
+    const orgs = [...new Set(ps.map(p => p.org).filter(Boolean))].filter(o => !isProj.has(o)).sort();
     const groups = new Set();
     for (const p of ps) { if (!p.org || !p.group) continue; const seg = p.group.split('/'); for (let i = 1; i <= seg.length; i++) groups.add(p.org + '/' + seg.slice(0, i).join('/')); }
     return { orgs, groups: [...groups].filter(g => !isProj.has(g)).sort() };

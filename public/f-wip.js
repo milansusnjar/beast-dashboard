@@ -16,7 +16,7 @@ FEAT.wip = (() => {
       const org = P[s.project]?.org; if (!org) continue;
       const v = votes[org] || (votes[org] = { personal: 0, company: 0 }); v[cl.account]++;
     }
-    return org => { const v = votes[org]; if (v && v.company !== v.personal) return v.company > v.personal ? 'company' : 'personal'; return (S.settings?.orgAccounts || {})[org] === 'company' ? 'company' : 'personal'; };
+    return (org, fb = 'personal') => { const v = votes[org]; if (v && v.company !== v.personal) return v.company > v.personal ? 'company' : 'personal'; const set = (S.settings?.orgAccounts || {})[org]; return set === 'company' || set === 'personal' ? set : fb; };
   }
 
   function matches(r, acc) {
@@ -222,5 +222,5 @@ FEAT.wip = (() => {
     host.replaceChildren(...build());
   }
 
-  return { onState, insertDraft, grid, orgAccount: org => orgAccounts()(org) };
+  return { onState, insertDraft, grid, orgAccount: org => orgAccounts()(org, null) };
 })();

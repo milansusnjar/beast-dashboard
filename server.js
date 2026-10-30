@@ -1167,9 +1167,10 @@ async function api(req, res, url) {
     case 'project-new': {
       const s = settings.get(); const c = newproject.check(b, s);
       if (!c.ok) return json(res, c.status, { ok: false, error: c.error });
-      const r = await newproject.create(c, s.devRoot);
+      const r = await newproject.create(c);
       if (!r.ok) return json(res, r.status, { ok: false, error: r.error });
-      if (c.newOrg && !(s.orgAccounts || {})[c.org]) settings.update({ orgAccounts: { ...(s.orgAccounts || {}), [c.org]: c.account } });
+      const oa = settings.get().orgAccounts || {};
+      if (c.newOrg && !Object.hasOwn(oa, c.org)) settings.update({ orgAccounts: { ...oa, [c.org]: c.account } });
       for (let i = 0; scanning && i < 100; i++) await new Promise(ok => setTimeout(ok, 100));
       await rescan(); pushState(true);
       const p = projects.find(x => x.path === c.target);
