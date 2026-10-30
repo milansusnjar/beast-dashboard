@@ -1,7 +1,7 @@
 # Progress: chat-only Claude sessions
 
 - [x] 1. Audit: terminal-bound Claude features and their chat replacement (list below) — open decisions before step 2
-- [ ] 2. Frontend removal
+- [ ] 2. Frontend removal (entry points done, see below)
 - [ ] 3. Server removal
 - [ ] 4. Runners under systemd-run (tmux fallback)
 - [ ] 5. Tests
@@ -76,3 +76,17 @@ Done 2026-10-30. Read-only, nothing deleted. Status: **blocked on the open decis
 - `headless.launch()`: `tmux new-session -d -s name -x 220 -y 50 -c cwd -e BEAST_DASH_PORT=… <runnerCmd>` then `claude.markChat`. Callers: `start`, `launchChat`/`startChat`/`forkChat` (via `chatQueue`), `restoreClaude` chat branch, `claude-resume` mode chat.
 - `headless.respawn()`: `tmux respawn-pane -k …` then waits for the socket. Used by `chat-move`, the old switch, runner restarts.
 - "Open this chat in a terminal": `actions.shellSession` running `claude --resume <id>` with `CLAUDE_CONFIG_DIR` for company (reuse `claudeCmd` env logic). Two processes on one session id if the runner is live: decide pause/stop.
+
+## Entry points -> chat (done)
+
+Every dashboard route and UI entry that starts or resumes Claude now starts a chat session (headless runner). Interactive Claude in a tmux pane can no longer be started from HTTP. Plain shells (`sh-N`) are unchanged.
+
+- Project card "Claude" menu: New chat (opens the new-chat modal for that project/account), running chats, Resume last chat in this folder (disabled with a hint when there is none), Chat in a git worktree. Terminal items, "Another instance", "Copy ssh command" are gone.
+- `claude` route: chat only. Options: plain (new chat), `resume` (newest conversation whose folder is the project), `worktree` (creates `<repo>/.claude/worktrees/<name>` on branch `worktree-<name>` with `git worktree add`, then starts a chat there). New `GET history-last` tells the menu whether a previous conversation exists. Worktree name validation and creation live in `lib/worktrees.js` (`validName`, `create`), the folder lookup in `lib/history.js` (`latestFor`).
+- `claude-resume`: always a chat. `claude-restore` / auto-restore: records of old terminal sessions come back as a chat that resumes the same conversation (needs a conversation id). `handoff`: starts a chat on the other account. `task-run`: starts or reuses a chat only (a non-chat session is rejected). `claude-restart`: chat sessions only. `claude-switch`: only the terminal -> chat direction is left.
+- Removed from `lib/actions.js`: `claudeCmd`, `launchClaude`, `claudeSession`, `resumeHere`, `respawnShell`. Pane scraping and send-keys code is still there, but no route starts a pane Claude any more.
+- New-session modal: "Terminal in a project..." is gone; the old picker (fallback only) now starts chats. "+ Plain shell" stays. Palette "New terminal" removed. "Start all" starts a chat for a saved Claude entry (skipped when that account already has a chat running on the project).
+- Session bar: Terminal/Chat switch, "Continue in chat", `TERM.mode`, `TERM.forceTerm`, `bd.mode`, `?mode=chat` links and the `^C` and y/n composer keys are gone. Chat sessions keep "Runner log" in the Options menu and "Back to chat".
+- Past conversation view: "In terminal" removed, "Continue in chat" stays.
+
+Left for later tasks (no chat equivalent yet or still pane code): Hand off button (needs the `limit` state, gap A), restart/update buttons shown for old terminal sessions (the route now answers with a clear error), `restartIdleTerms` banner, README text, `claude-switch` route itself.

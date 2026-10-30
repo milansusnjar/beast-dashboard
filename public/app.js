@@ -196,14 +196,14 @@ function gl(label, size = 14) {
 }
 // Terminal / Chat is ONE global switch for this device (Mac, phone …): every Claude session shows the same way.
 const IS_PHONE = matchMedia('(max-width: 900px)').matches;
-const TERM = { open: false, active: null, frames: new Map(), lastUsed: new Map(), showList: false, listKey: '', mode: localStorage.getItem('bd.mode') ? (localStorage.getItem('bd.mode') === 'chat' ? 'chat' : 'term') : (IS_PHONE ? 'chat' : 'term'), view: {}, forceTerm: new Set(), chatEv: {}, chatN: 40 };
+const TERM = { open: false, active: null, frames: new Map(), lastUsed: new Map(), showList: false, listKey: '', view: {}, chatEv: {}, chatN: 40 };
 let CLAUDE_UPGRADING = false;   // mise upgrade claude in flight (see updateClaude)
 const isChatSess = name => (claudeOf(name) || {}).mode === 'chat';
-const chatMode = name => { const cl = claudeOf(name); if (!cl) return false; return cl.mode === 'chat' ? TERM.view[name] !== 'term' : !TERM.forceTerm.has(name) && TERM.mode === 'chat'; };
+const chatMode = name => { const cl = claudeOf(name); return !!cl && cl.mode === 'chat' && TERM.view[name] !== 'term'; };
 // Focus: hide the session list in the terminal panel (screen sharing) — per device, remembered
 TERM.focus = localStorage.getItem('bd.focus') === '1' && !IS_PHONE;   // focus mode is a desktop thing; on the phone the list must always be reachable
 function setFocus(on) { TERM.focus = on; localStorage.setItem('bd.focus', on ? '1' : '0'); document.body.classList.toggle('focus', on); renderTermPanel(true); }
-function setMode(mode) { if (TERM.active && isChatSess(TERM.active)) TERM.view[TERM.active] = mode; else { TERM.forceTerm.delete(TERM.active); TERM.mode = mode; localStorage.setItem('bd.mode', mode); } renderTermPanel(true); renderChatPane(true); if (mode === 'term') { const f = TERM.frames.get(TERM.active); if (f) setTimeout(() => f.focus(), 50); } }
+function setMode(mode) { if (TERM.active && isChatSess(TERM.active)) TERM.view[TERM.active] = mode; renderTermPanel(true); renderChatPane(true); if (mode === 'term') { const f = TERM.frames.get(TERM.active); if (f) setTimeout(() => f.focus(), 50); } }
 // Chat mode for the active session: the conversation view in place of the tmux iframe (same tmux session underneath)
 async function renderChatPane(force) {
   const pane = $('#term-chat'); if (!pane) return; const name = TERM.active; const on = TERM.open && name && chatMode(name);
@@ -345,7 +345,7 @@ function openTermTab(session) { window.open(termUrl(session), '_blank'); }
 let clientLogN = 0; setInterval(() => { clientLogN = 0; }, 60000);
 function clientLog(msg) {
   if (clientLogN++ > 5) return;
-  const where = `view=${UI.view} term=${TERM.open} list=${TERM.showList} mode=${TERM.mode} active=${TERM.active} drawer=${UI.drawer} modal=${!$('#modal').classList.contains('hidden')} vv=${window.visualViewport ? Math.round(window.visualViewport.height) + '/' + Math.round(window.visualViewport.offsetTop) : '-'} standalone=${!!navigator.standalone}`;
+  const where = `view=${UI.view} term=${TERM.open} list=${TERM.showList} active=${TERM.active} drawer=${UI.drawer} modal=${!$('#modal').classList.contains('hidden')} vv=${window.visualViewport ? Math.round(window.visualViewport.height) + '/' + Math.round(window.visualViewport.offsetTop) : '-'} standalone=${!!navigator.standalone}`;
   try { navigator.sendBeacon ? navigator.sendBeacon('/api/clientlog', new Blob([JSON.stringify({ ua: navigator.userAgent, msg, where })], { type: 'application/json' })) : fetch('/api/clientlog', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ua: navigator.userAgent, msg, where }) }); } catch {}
 }
 window.addEventListener('error', e => clientLog(`${e.message} @ ${(e.filename || '').split('/').pop()}:${e.lineno}`));
@@ -353,7 +353,7 @@ window.addEventListener('unhandledrejection', e => clientLog('rejection: ' + (e.
 // the files on the server changed: reload now unless the user is typing (then a banner offers it)
 function newBuild() { reloadPending = true; maybeReload(); }
 let reloadPending = false;
-function contextUrl() { const u = new URL(location.href); if (TERM.open && TERM.active) u.search = '?term=' + encodeURIComponent(TERM.active) + (TERM.mode === 'chat' ? '&mode=chat' : ''); else if (UI.view !== 'home') u.search = '?view=' + UI.view; else u.search = ''; return u.href; }
+function contextUrl() { const u = new URL(location.href); if (TERM.open && TERM.active) u.search = '?term=' + encodeURIComponent(TERM.active) + ''; else if (UI.view !== 'home') u.search = '?view=' + UI.view; else u.search = ''; return u.href; }
 function maybeReload() {
   if (safeToReload()) { try { sessionStorage.setItem('bd.updated', '1'); } catch {} location.replace(contextUrl()); return; }
   if (!$('#newbuild')) document.body.append(h('button', { id: 'newbuild', class: 'btn primary', onclick: () => location.replace(contextUrl()) }, ico('refresh', 14), 'Dashboard updated — reload'));
@@ -420,7 +420,7 @@ function gcFrames() { const now = Date.now(); for (const k of [...TERM.frames.ke
 async function newShell() { try { const r = await api('shell', {}); openTerm(r.name); } catch (e) { toast('shell failed: ' + e.message, 'err'); } }
 // "+ Terminal": pick a project, account (personal/company) and fresh/resume-last → Claude session in that project;
 // or skip the project and start a plain bash shell. Choices are remembered.
-const NT = { acct: localStorage.getItem('bd.nt.acct') || 'personal', kind: localStorage.getItem('bd.nt.kind') === 'chat' ? 'chat' : 'term', resume: localStorage.getItem('bd.nt.resume') === '1', q: '', org: 'all' };
+const NT = { acct: localStorage.getItem('bd.nt.acct') || 'personal', q: '', org: 'all' };
 function newTerminalModal() {
   const m = $('#modal'); m.classList.remove('hidden');
   const close = () => { m.classList.add('hidden'); document.removeEventListener('keydown', esc, true); };
@@ -429,19 +429,15 @@ function newTerminalModal() {
   NT.q = ''; const list = h('div', { class: 'ntlist' }); const opts = h('div', { class: 'ntopts' });
   const seg = (items, cur, set) => h('span', { class: 'seg' }, items.map(([v, l]) => h('button', { class: 'segb' + (cur === v ? ' on' : ''), onclick: () => { set(v); renderOpts(); renderList(); } }, l)));
   const renderOpts = () => opts.replaceChildren(
-    h('span', { class: 'ntl' }, 'Type'), seg([['term', 'Terminal'], ['chat', 'Chat']], NT.kind, v => { NT.kind = v; localStorage.setItem('bd.nt.kind', v); }),
     h('span', { class: 'ntl' }, 'Account'), seg([['personal', acct('personal')], ['company', acct('company')]], NT.acct, v => { NT.acct = v; localStorage.setItem('bd.nt.acct', v); }),
-    ...(NT.kind === 'chat' ? [h('span', { class: 'ntl' }, 'Session'), h('span', { class: 'dim', style: 'font-size:12px' }, 'new conversation · headless claude -p')] : [h('span', { class: 'ntl' }, 'Session'), seg([[false, 'New'], [true, 'Resume last']], NT.resume, v => { NT.resume = v; localStorage.setItem('bd.nt.resume', v ? '1' : '0'); })]));
-  const baseName = p => 'claude-' + p.dirName.replace(/[^A-Za-z0-9_.-]+/g, '-') + (NT.acct === 'company' ? '-company' : '');
-  const runningOn = p => S.runtime.sessions.filter(x => x.project === p.id && isClaudeSession(x) && (x.name.endsWith('-company') ? 'company' : 'personal') === NT.acct);
-  const go = p => { close(); if (NT.kind === 'chat') return startClaude(p, NT.acct, { mode: 'chat' }); startClaude(p, NT.acct, NT.resume ? { resume: true } : S.runtime.sessions.some(x => x.name === baseName(p)) ? { fresh: true } : {}); };
+    h('span', { class: 'ntl' }, 'Session'), h('span', { class: 'dim', style: 'font-size:12px' }, 'new chat · headless claude -p'));
+  const runningOn = p => S.runtime.sessions.filter(x => x.project === p.id && x.claude?.mode === 'chat' && (x.claude.account || 'personal') === NT.acct);
+  const go = p => { close(); startClaude(p, NT.acct); };
   const shown = () => { const q = NT.q.trim().toLowerCase(); return S.projects.filter(p => !p.hidden && (NT.org === 'all' || p.org === NT.org) && (!q || [p.name, p.org, p.dirName, p.group].join(' ').toLowerCase().includes(q))); };
   const renderList = () => {
-    const r = shown(); const live = new Set(S.runtime.sessions.map(x => x.name));
+    const r = shown();
     const onRow = p => {
-      const resume = NT.resume && NT.kind === 'term';
-      const on = runningOn(p); if (!on.length) return resume ? h('span', { class: 'dim', style: 'font-size:11.5px' }, gl('↺ --continue')) : null;
-      if (resume && live.has(baseName(p))) return h('span', { class: 'badge tag acc ' + NT.acct }, 'running → attach');
+      const on = runningOn(p); if (!on.length) return null;
       return h('span', { class: 'ntrun' }, h('span', { class: 'badge tag acc ' + NT.acct }, `${on.length} running · ＋ new`), h('button', { class: 'btn sm ghost', title: 'open the running one instead: ' + on.map(x => x.name).join(', '), onclick: ev => { ev.stopPropagation(); close(); openTerm(on[0].name); } }, 'open'));
     };
     list.replaceChildren(...(r.length ? r.map(p => h('div', { class: 'ntrow', onclick: () => go(p) }, avatar(p.id, 'sm'), h('div', { class: 'ntn' }, h('div', { class: 'ntt' }, p.name), h('div', { class: 'nts' }, [p.org, p.group].filter(Boolean).join(' · '))), FEAT.worktrees?.pickerChip?.(p), onRow(p))) : [h('div', { class: 'tsempty' }, 'No project matches.')]));
@@ -450,7 +446,7 @@ function newTerminalModal() {
   const orgChips = h('span', { class: 'chips sm' }, ['all', ...orgs].map(o => h('button', { class: 'chip' + (NT.org === o ? ' on' : ''), onclick: () => { NT.org = o; orgChips.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c.dataset.o === o)); renderList(); }, 'data-o': o }, o === 'all' ? 'All' : o)));
   const inp = h('input', { class: 'txt', placeholder: 'Search projects…  (Enter = first match)', oninput: e => { NT.q = e.target.value; renderList(); }, onkeydown: e => { if (e.key === 'Enter') { const r = shown()[0]; if (r) go(r); } } });
   const box = h('div', { class: 'box ntbox' },
-    h('div', { class: 'sh' }, h('h3', null, '＋ New session'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: close }, ico('x', 15))),
+    h('div', { class: 'sh' }, h('h3', null, '＋ New chat'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: close }, ico('x', 15))),
     h('button', { class: 'btn ntshell', onclick: () => { close(); newShell(); } }, ico('plus', 13), h('b', null, 'No project — just start a shell'), h('span', { class: 'dim' }, 'plain bash in the dev folder')),
     opts, inp, orgs.length > 1 ? orgChips : null, list);
   m.replaceChildren(box); m.onclick = e => { if (e.target === m) close(); };
@@ -534,7 +530,7 @@ function renderTermPanel(force) {
   const extra = [...TERM.frames.keys()].filter(k => !known.has(k));
   // The list and the bar are rebuilt only when something they show actually changed. Rebuilding them on every
   // 3-second state tick blurred the terminal iframe (the focus bug) and made the sidebar flicker.
-  const key = JSON.stringify([TERM.active, TERM.showList, TERM.mode, TERM.view[TERM.active] || '', TERM.forceTerm.has(TERM.active), TERM.focus, S3.all.map(x => [x.name, x.claude?.mode, x.claude?.state, x.claude?.title, x.claude?.label, x.claude?.firstPrompt, (x.claude?.projects || []).join(), x.claude?.draft, x.claude?.model, x.claude?.effort, x.claude?.branch, x.claude?.worktree?.name, x.claude?.version, (S.settings.muted || []).includes(x.name), Math.floor((x.cpu || 0) / 10), x.ports.map(p => p.port)]), S.claude?.installed, S.claude?.update?.version, CLAUDE_UPGRADING, extra, [...TERM.frames.keys()], S.runtime.sessions.filter(s => s.name === TERM.active).map(s => s.project + (gitOf(byId()[s.project] || {})?.dirty || 0) + '|' + (s.claude?.ctx ? Math.round(s.claude.ctx.used / 1000) + '/' + s.claude.ctx.window : '')), feat('termBarKey', TERM.active)]);
+  const key = JSON.stringify([TERM.active, TERM.showList, TERM.view[TERM.active] || '', TERM.focus, S3.all.map(x => [x.name, x.claude?.mode, x.claude?.state, x.claude?.title, x.claude?.label, x.claude?.firstPrompt, (x.claude?.projects || []).join(), x.claude?.draft, x.claude?.model, x.claude?.effort, x.claude?.branch, x.claude?.worktree?.name, x.claude?.version, (S.settings.muted || []).includes(x.name), Math.floor((x.cpu || 0) / 10), x.ports.map(p => p.port)]), S.claude?.installed, S.claude?.update?.version, CLAUDE_UPGRADING, extra, [...TERM.frames.keys()], S.runtime.sessions.filter(s => s.name === TERM.active).map(s => s.project + (gitOf(byId()[s.project] || {})?.dirty || 0) + '|' + (s.claude?.ctx ? Math.round(s.claude.ctx.used / 1000) + '/' + s.claude.ctx.window : '')), feat('termBarKey', TERM.active)]);
   const frames = $('#term-frames'); const chatOn = TERM.active && chatMode(TERM.active);
   for (const [k, f] of TERM.frames) { if (!f.isConnected) frames.append(f); f.classList.toggle('on', k === TERM.active && !chatOn); }
   $('#term-chat').classList.toggle('hidden', !chatOn);
@@ -592,9 +588,6 @@ function renderTermPanel(force) {
     h('button', { class: 'mob msess', title: 'switch session', onclick: () => { TERM.showList = true; renderTermPanel(true); } }, act ? avatar(act.project, 'sm') : null, h('span', { class: 'nm' }, mobName), accTag(), instOf(act || { name: TERM.active || '' }).n ? h('span', { class: 'grp' }, '#' + instOf(act).n) : null, h('span', { class: 'caret' }, '▾')), cl && IS_PHONE ? stateBadge(cl, true) : null);
   const actProj = act && byId()[act.project]; const actGit = actProj && gitOf(actProj);
   const actDirty = actGit && !actGit.error ? actGit.dirty + actGit.untracked : 0;
-  // one switch for every session on this device — not per session
-  const chatOnNow = TERM.active && chatMode(TERM.active);
-  const chatSw = cl && (cl.hooked || cl.mode === 'chat') ? h('span', { class: 'seg', title: cl.mode === 'chat' ? 'Chat session — Terminal shows the runner log' : 'Terminal or Chat view — applies to all Claude sessions on this device' }, h('button', { class: 'segb' + (!chatOnNow ? ' on' : ''), onclick: () => setMode('term') }, ico('terminal', 14), h('span', { class: 'desk' }, cl.mode === 'chat' ? 'Log' : 'Terminal')), h('button', { class: 'segb' + (chatOnNow ? ' on' : ''), onclick: () => setMode('chat') }, ico('chat', 14), h('span', { class: 'desk' }, 'Chat'))) : null;
   const actName = act ? sessTitle(act) : TERM.active;
   const isChatS = cl && cl.mode === 'chat'; const logOn = isChatS && TERM.view[TERM.active] === 'term';
   const muted = (S.settings.muted || []).includes(TERM.active);
@@ -604,13 +597,12 @@ function renderTermPanel(force) {
     h('span', { class: 'tid desk' }, act ? avatar(act.project, 'sm') : null,
       h('span', { class: 'tname' + (cl ? ' can-rename' : ''), title: cl ? 'click to rename · ' + TERM.active : TERM.active, onclick: cl ? () => renameDialog(TERM.active) : null }, actName, instOf(act || { name: TERM.active }).n ? h('span', { class: 'grp' }, ' #' + instOf(act).n) : null),
       IS_PHONE ? null : accTag()),
-    isChatS ? null : chatSw, cl && !IS_PHONE ? stateBadge(cl) : null, modelChip(cl), cl ? whereTag(cl) : null, sub,
+    cl && !IS_PHONE ? stateBadge(cl) : null, modelChip(cl), cl ? whereTag(cl) : null, sub,
     h('span', { class: 'sp' }),
     logOn ? h('button', { class: 'btn sm', title: 'you are looking at the runner log — back to the conversation', onclick: () => setMode('chat') }, ico('chat', 13), 'Back to chat') : null,
     cl && cl.state === 'limit' && act ? h('button', { class: 'btn sm primary', title: 'start the other account in this folder with a summary of where this one stopped', onclick: () => handoff({ name: TERM.active, account: cl.account, project: act.project }) }, gl('⇄ Hand off')) : null,
     cl && S.claude?.update ? h('button', { class: 'btn sm dirtybtn desk', disabled: CLAUDE_UPGRADING, title: CLAUDE_UPGRADING ? 'mise upgrade claude is running…' : `Claude Code ${S.claude.update.version} is out — install it (mise upgrade claude), then restart this session (same conversation, --resume)`, onclick: () => updateClaude({ name: TERM.active, project: act?.project }) }, ico('refresh', 13), CLAUDE_UPGRADING ? 'installing…' : S.claude.update.version) :
     cl && cl.version && S.claude?.installed && cl.version !== S.claude.installed ? h('button', { class: 'btn sm dirtybtn desk', title: `running Claude Code ${cl.version}, ${S.claude.installed} is installed — restart this session (same conversation, --resume)`, onclick: () => restartSession({ name: TERM.active, project: act?.project }) }, ico('refresh', 13), S.claude.installed) : null,
-    !isChatS && cl && cl.hooked && cl.sessionId ? h('button', { class: 'btn sm', title: 'continue this conversation as a chat — same tmux session, same conversation (only when Claude is idle)', onclick: () => switchSession(TERM.active, 'chat') }, ico('chat', 13), h('span', { class: 'desk' }, 'Continue in chat')) : null,
     ...feat('termBar', TERM.active),
     actProj ? h('button', { class: 'btn sm ghost projbtn', title: 'project details — changes, files, logs, branches, docker', onclick: () => openDrawer(actProj.id, actDirty ? 'changes' : 'overview') }, ico('folder', 14), h('span', { class: 'desk' }, 'Project'), actDirty ? h('span', { class: 'pill warn' }, '± ' + actDirty) : null) : null,
     ...(cl ? feat('chatBar', TERM.active) : []),
@@ -624,38 +616,27 @@ function renderTermPanel(force) {
 function noteBundle(p, entry) { const b = (S.settings.projects?.[p.id]?.bundle || []).filter(x => !(x.kind === entry.kind && x.name === entry.name)); b.push(entry); api('project', { id: p.id, bundle: b.slice(-8) }).catch(() => {}); }
 async function startBundle(p) {
   const b = S.settings.projects?.[p.id]?.bundle || []; if (!b.length) return;
-  for (const e of b) { try { if (e.kind === 'cmd') { if (!runtimeFor(p.id).sessions.some(s => s.label === e.name)) await act(`${p.name}: ${e.name}`, api('run', { id: p.id, name: e.name })); } else if (e.kind === 'claude') await startClaude(p, e.name, {}, true); } catch {} }
+  for (const e of b) { try { if (e.kind === 'cmd') { if (!runtimeFor(p.id).sessions.some(s => s.label === e.name)) await act(`${p.name}: ${e.name}`, api('run', { id: p.id, name: e.name })); } else if (e.kind === 'claude') { if (!runtimeFor(p.id).sessions.some(s => s.claude?.mode === 'chat' && (s.claude.account || 'personal') === e.name)) await startClaude(p, e.name, {}, true); } } catch {} }
 }
 async function startClaude(p, account, opts = {}, quiet) {
-  if (!quiet && !opts.mode) noteBundle(p, { kind: 'claude', name: account });
-  try { const r = await api('claude', { id: p.id, account, ...opts }); toast(r.existed ? `Attaching to ${r.name}` : `Started ${r.name} (${account}${opts.mode === 'chat' ? ', chat' : ''})`, 'ok'); openTerm(r.name); }
-  catch (e) { toast('Claude session failed: ' + e.message, 'err'); }
+  if (!quiet && !opts.resume && !opts.worktree) noteBundle(p, { kind: 'claude', name: account });
+  try { const r = await api('claude', { id: p.id, account, ...opts }); toast(r.existed ? `Attaching to ${r.name}` : `Started ${r.name} (${account}, chat)`, 'ok'); openTerm(r.name); }
+  catch (e) { toast('Chat failed: ' + e.message, 'err'); }
 }
-function claudeMenu(ev, p) {
-  const r = runtimeFor(p.id); const live = new Set(r.sessions.map(s => s.name));
-  const base = p.dirName.replace(/[^A-Za-z0-9_.-]+/g, '-'); const per = `claude-${base}`, co = `claude-${base}-company`;
-  const mine = r.sessions.filter(s => isClaudeSession(s));
-  const wt = account => { const name = prompt('Worktree / branch name for the new Claude session (e.g. feat-login):'); if (name) startClaude(p, account, { worktree: name.trim() }); };
-  openMenu(ev, [
-    { header: 'Claude Code session (tmux, --dangerously-skip-permissions)' },
-    { label: acct('personal'), sub: live.has(per) ? `${per} · running → attach` : `${per} · ~/.claude`, icon: live.has(per) ? '●' : '✦', cur: live.has(per), onclick: () => startClaude(p, 'personal') },
-    { label: acct('company'), sub: live.has(co) ? `${co} · running → attach` : `${co} · ~/.claude-company`, icon: live.has(co) ? '●' : '✦', cur: live.has(co), onclick: () => startClaude(p, 'company') },
-    ...mine.filter(s => s.name !== per && s.name !== co).map(s => ({ label: nice(s.name).replace(/^✦ /, ''), sub: (s.claude && (STATE_LABEL[s.claude.state] + (s.claude.title ? ' · ' + s.claude.title : ''))) || 'running → attach', icon: '●', cur: true, onclick: () => openTerm(s.name) })),
+async function claudeMenu(ev, p) {
+  const anchor = ev.currentTarget; const two = multiAcct(); const accts = two ? ['personal', 'company'] : ['personal'];
+  const mine = runtimeFor(p.id).sessions.filter(s => isClaudeSession(s) && s.claude?.mode === 'chat');
+  const last = await api('history-last?id=' + encodeURIComponent(p.id)).catch(() => null);
+  const wt = account => { const name = prompt('Name for the new git worktree + branch (e.g. feat-login):'); if (name && name.trim()) startClaude(p, account, { worktree: name.trim() }); };
+  openMenu({ currentTarget: anchor }, [
+    { header: 'New chat' },
+    ...accts.map(a => ({ label: two ? acct(a) : 'New chat', sub: 'type the first message', icon: '◇', onclick: () => newSessionModal('new', '', { project: p.id, account: a }) })),
+    mine.length ? 'sep' : null,
+    ...mine.map(s => ({ label: nice(s.name).replace(/^✦ /, ''), sub: (s.claude && (STATE_LABEL[s.claude.state] + (s.claude.title ? ' · ' + s.claude.title : ''))) || 'running → open', icon: '●', cur: true, onclick: () => openTerm(s.name) })),
     'sep',
-    { header: 'Chat session (headless claude -p · beta)' },
-    { label: acct('personal') + ' chat', sub: 'new conversation · chat view', icon: '◇', onclick: () => startClaude(p, 'personal', { mode: 'chat' }) },
-    { label: acct('company') + ' chat', sub: 'new conversation · chat view', icon: '◇', onclick: () => startClaude(p, 'company', { mode: 'chat' }) },
-    'sep',
-    { label: acct('personal') + ' — resume last', sub: 'claude --continue', icon: '↺', disabled: live.has(per), onclick: () => startClaude(p, 'personal', { resume: true }) },
-    { label: acct('company') + ' — resume last', sub: 'claude --continue', icon: '↺', disabled: live.has(co), onclick: () => startClaude(p, 'company', { resume: true }) },
-    'sep',
-    { header: 'More Claudes on this project' },
-    { label: `Another ${acctL('personal')} instance`, sub: `${per}-2 · same working tree`, icon: '＋', onclick: () => startClaude(p, 'personal', { fresh: true }) },
-    { label: `Another ${acctL('company')} instance`, sub: `${co.replace(/-company$/, '')}-2-company · same working tree`, icon: '＋', onclick: () => startClaude(p, 'company', { fresh: true }) },
-    p.isGit ? { label: acct('personal') + ' in a git worktree…', sub: 'claude --worktree <name> · separate branch + directory', icon: '⎇', onclick: () => wt('personal') } : null,
-    p.isGit ? { label: acct('company') + ' in a git worktree…', sub: 'claude --worktree <name> · separate branch + directory', icon: '⎇', onclick: () => wt('company') } : null,
-    'sep',
-    { label: 'Copy ssh command', sub: attachCmd(per), icon: '⎘', onclick: () => navigator.clipboard.writeText(attachCmd(per)).then(() => toast('copied — paste in a terminal on your laptop')) },
+    ...accts.map(a => { const l = last && last[a]; return { label: two ? 'Resume last chat · ' + acct(a) : 'Resume last chat in this folder', sub: l ? (l.title || 'previous conversation').slice(0, 50) + ' · ' + ago(l.lastAt) + ' ago' : last ? 'no earlier conversation in this folder' : '', icon: '↺', disabled: !!last && !l, onclick: () => startClaude(p, a, { resume: true }) }; }),
+    p.isGit ? 'sep' : null,
+    ...(p.isGit ? accts.map(a => ({ label: (two ? acct(a) + ' chat' : 'Chat') + ' in a git worktree…', sub: 'new branch + folder under .claude/worktrees', icon: '⎇', onclick: () => wt(a) })) : []),
   ].filter(Boolean));
 }
 function exposedPort(port) { return S.runtime.exposures.find(e => e.port === port); }
@@ -1030,14 +1011,6 @@ async function restartIdleTerms(btn, names) {
     try { await api('claude-restart', { session: name, ifIdle: true }); ok++; } catch (e) { toast(`${name}: ${e.message === 'busy' ? 'busy, skipped' : e.message}`, 'err'); }
   }
   toast(`Restarted ${ok} of ${names.length}`, ok ? 'ok' : 'err');
-}
-async function switchSession(name, to) {
-  try {
-    await api('claude-switch', { session: name, to });
-    if (to === 'term') TERM.forceTerm.add(name); else { TERM.forceTerm.delete(name); delete TERM.view[name]; }
-    toast(to === 'term' ? 'Opening the conversation in the terminal (claude --resume)…' : 'Continuing in chat…', 'ok');
-    setTimeout(() => { renderTermPanel(true); renderChatPane(true); }, 1500);
-  } catch (e) { toast(e.message === 'busy' ? 'Busy — wait for the turn to end or Stop first' : 'Switch failed: ' + e.message, 'err'); }
 }
 async function handoff(it) {
   const to = it.account === 'company' ? 'personal' : 'company';
@@ -1540,9 +1513,7 @@ function composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDr
   const mic = voiceButton(ta, name);
   const clock = h('button', { class: 'btn sm ghost qk csched', title: 'schedule this message for later (or a chain of messages)', onclick: () => scheduleDialog(name, ta.value) }, ico('sched', 15));
   const keys = h('div', { class: 'ckeys' }, attach, mic, clock, fileIn, ...feat('composerKeys', name),
-    sj.length ? h('span', { class: 'sjobs' }, sj.map(j => h('span', { class: 'sjob', title: j.prompts.join('\n\n') }, ico('clock', 12), ' ', j.whenFree ? 'when free' : new Date(j.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), j.prompts.length > 1 ? ` ×${j.prompts.length}` : '', j.state === 'running' || j.state === 'sent' ? ' · ' + j.state : '', h('button', { class: 'x', title: 'remove', onclick: () => api('schedule-remove', { id: j.id }) }, ico('x', 11))))) : null,
-    cl.state === 'permission' && !cl.menu && cl.mode !== 'chat' ? ['y', 'n'].map(k => h('button', { class: 'btn sm qk ' + (k === 'y' ? 'yes' : 'no'), onclick: () => api('send', { session: name, text: k, enter: false }) }, k)) : null,
-    cl.mode === 'chat' ? null : h('button', { class: 'btn sm ghost qk', title: 'send Ctrl-C', onclick: () => { if (confirm('Send Ctrl-C?')) api('key', { session: name, key: 'c-c' }); } }, '^C'));
+    sj.length ? h('span', { class: 'sjobs' }, sj.map(j => h('span', { class: 'sjob', title: j.prompts.join('\n\n') }, ico('clock', 12), ' ', j.whenFree ? 'when free' : new Date(j.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), j.prompts.length > 1 ? ` ×${j.prompts.length}` : '', j.state === 'running' || j.state === 'sent' ? ' · ' + j.state : '', h('button', { class: 'x', title: 'remove', onclick: () => api('schedule-remove', { id: j.id }) }, ico('x', 11))))) : null);
   const el = h('div', { class: 'cbox2', 'data-k': compKey }, h('div', { class: 'cfield', onclick: ev => { if (ev.target === ev.currentTarget || ev.target.classList.contains('cfoot')) ta.focus(); } }, ta,
     h('div', { class: 'cfoot' }, keys, cl.state ? modelPicker(name, cl) : null, stopBtn, sendBtn)));
   syncAct();
@@ -1941,8 +1912,7 @@ async function openTranscriptFile(hh) {
   const d = $('#drawer'); const title = hh.title || (hh.cwd || '').split('/').pop() || hh.sessionId.slice(0, 8);
   let busy = false; const once = fn => { if (busy) return; busy = true; fn().catch(() => {}).finally(() => { busy = false; }); };
   const head = h('div', { class: 'dh' }, h('div', { class: 'row1' }, h('h2', null, h('span', { class: 'sicon' }, gl('✦')), title, h('span', { class: 'badge tag acc ' + hh.account }, acct(hh.account)), h('span', { class: 'dim', style: 'font-size:12px;font-weight:500' }, 'past conversation · ' + ago(hh.mtime) + ' ago')),
-      h('button', { class: 'btn sm primary', title: 'continue this conversation as a chat (headless claude -p --resume) in that folder', onclick: () => once(() => act('Continue ' + title, api('claude-resume', { sessionId: hh.sessionId, cwd: hh.cwd, account: hh.account, mode: 'chat' })).then(r => { closeDrawer(); if (r?.name) openTerm(r.name); })) }, ico('chat', 13), 'Continue in chat'),
-      h('button', { class: 'btn sm', title: 'start a new tmux session in that folder with claude --resume on this conversation', onclick: () => once(() => act('Resume ' + title, api('claude-resume', { sessionId: hh.sessionId, cwd: hh.cwd, account: hh.account })).then(r => { closeDrawer(); if (r?.name) setTimeout(() => openTerm(r.name), 1200); })) }, ico('terminal', 13), 'In terminal'),
+      h('button', { class: 'btn sm primary', title: 'continue this conversation as a chat (headless claude -p --resume) in that folder', onclick: () => once(() => act('Continue ' + title, api('claude-resume', { sessionId: hh.sessionId, cwd: hh.cwd, account: hh.account })).then(r => { closeDrawer(); if (r?.name) openTerm(r.name); })) }, ico('chat', 13), 'Continue in chat'),
       h('button', { class: 'btn ghost close', onclick: closeDrawer }, gl('✕ Esc'))),
     h('div', { class: 'path' }, hh.cwd || '', ' · ', hh.sessionId));
   const body = h('div', { class: 'db sess' }); d.replaceChildren(head, body); body.append(h('div', { class: 'dim', style: 'padding:20px' }, 'loading…'));
@@ -2418,7 +2388,7 @@ function taskCard(t) {
 }
 function runTaskMenu(ev, t) {
   const p = t.project && byId()[t.project]; if (!p) { toast('pick a project for this task first', 'err'); return taskModal(t); }
-  const live = S.runtime.sessions.filter(s => s.claude && s.project === p.id);
+  const live = S.runtime.sessions.filter(s => s.claude?.mode === 'chat' && s.project === p.id);
   const others = (S.claude?.tasks || []).filter(x => x.project === p.id && x.status !== 'done' && x.id !== t.id);
   const go = (account, session, ids) => act((ids ? ids.length + ' tasks' : 'Task') + ' → ' + p.name, api('task-run', { id: t.id, account, session, ids })).then(r => { if (r && r.session) setTimeout(() => openTerm(r.session), 1200); });
   const chain = [t.id, ...others.map(x => x.id)];
@@ -2426,8 +2396,8 @@ function runTaskMenu(ev, t) {
     { header: 'Send the task as a prompt to…' },
     ...live.map(s => ({ label: (s.claude.label || p.name) + (instOf(s).n ? ' #' + instOf(s).n : ''), sub: `${s.name} · ${STATE_LABEL[s.claude.state] || ''}${s.claude.state === 'working' ? ' — queued until it is idle' : ''}`, icon: '●', cur: true, onclick: () => go(s.claude.account, s.name) })),
     live.length ? 'sep' : null,
-    { label: `New ${acctL('personal')} session`, sub: 'starts claude in ' + home(p.path), icon: '＋', onclick: () => go('personal') },
-    { label: `New ${acctL('company')} session`, sub: `starts claude (${acctL('company')} account)`, icon: '＋', onclick: () => go('company') },
+    { label: `New ${acctL('personal')} chat`, sub: 'starts a chat in ' + home(p.path), icon: '＋', onclick: () => go('personal') },
+    { label: `New ${acctL('company')} chat`, sub: `starts a chat (${acctL('company')} account)`, icon: '＋', onclick: () => go('company') },
     others.length ? 'sep' : null,
     others.length ? { header: `Chain: this + ${others.length} more open task${others.length > 1 ? 's' : ''} on ${p.name}, one after another` } : null,
     ...(others.length ? live.map(s => ({ label: 'Run all on ' + (s.claude.label || p.name) + (instOf(s).n ? ' #' + instOf(s).n : ''), sub: s.name, icon: '▶▶', onclick: () => go(s.claude.account, s.name, chain) })) : []),
@@ -2675,7 +2645,6 @@ function paletteItems() {
   for (const p of S.projects.filter(p => !p.hidden)) items.push({ kind: 'project', label: p.name, sub: [p.org, p.group, p.framework].filter(Boolean).join(' · '), icon: '▤', hay: [p.name, p.rel, p.org, p.framework].join(' '), run: () => openDrawer(p.id, 'overview'), rank: 20, more: [{ l: '✦', t: `Claude (${acctL('personal')})`, f: () => startClaude(p, 'personal') }, { l: '✦c', t: `Claude (${acctL('company')})`, f: () => startClaude(p, 'company') }, { l: '±', t: 'changes', f: () => openDrawer(p.id, 'changes') }] });
   items.push({ kind: 'action', label: 'New chat', sub: 'type right away — the project is guessed', icon: '＋', hay: 'new chat session claude start', run: () => newSessionModal('new'), rank: 28 },
     { kind: 'action', label: 'Resume a conversation', sub: 'past conversations, with search', icon: '↺', hay: 'resume history past conversation old chat', run: () => newSessionModal('resume'), rank: 28 },
-    { kind: 'action', label: 'New terminal', sub: 'pick project + account + resume, or plain shell', icon: '＋', hay: 'new terminal project claude session', run: newTerminalModal, rank: 29 },
     { kind: 'action', label: 'New shell', sub: 'bash in the dev folder (tmux sh-N)', icon: '$', hay: 'shell bash terminal new', run: newShell, rank: 30 },
     { kind: 'action', label: 'Terminals panel', sub: 'full-screen terminal view', icon: '⛶', hay: 'terminals panel', run: () => $('#btn-shell').click(), rank: 31 },
     { kind: 'action', label: 'Tunnels', sub: 'exposed ports', icon: '⇄', hay: 'tunnels ports expose socat', run: () => { UI.showTunnels = true; renderTunnels(); }, rank: 32 },
@@ -2753,7 +2722,7 @@ let firstDone = false;
 function firstState() {
   if (firstDone) return; firstDone = true;
   const q = new URLSearchParams(location.search); const t = q.get('term'); const sess = q.get('session');
-  if (t) { history.replaceState(null, '', location.pathname); if (q.get('mode') === 'chat') { TERM.mode = 'chat'; localStorage.setItem('bd.mode', 'chat'); } openTerm(t); }
+  if (t) { history.replaceState(null, '', location.pathname); openTerm(t); }
   else if (sess && q.get('view') !== 'code') { history.replaceState(null, '', location.pathname); openSession(sess, q.get('tab') || 'transcript'); }
   else if (['chat', 'resume'].includes(q.get('new'))) { history.replaceState(null, '', location.pathname); newSessionModal(q.get('new') === 'chat' ? 'new' : 'resume', q.get('text') || '', { project: q.get('project') || null, account: q.get('account') || null }); }
   else if (['projects', 'home', 'tasks'].includes(q.get('view'))) { history.replaceState(null, '', location.pathname); setView(q.get('view')); }
@@ -2773,7 +2742,6 @@ function openFromUrl(u) {
   let qq; try { qq = new URL(u, location.origin).searchParams; } catch { return; }
   const term = qq.get('term');
   if (term) {
-    if (qq.get('mode') === 'chat') { TERM.mode = 'chat'; localStorage.setItem('bd.mode', 'chat'); }
     if (PAL.open) closePalette(false); if (UI.drawer) closeDrawer(); $('#modal')?.classList.add('hidden');
     if (!firstDone) { setTimeout(() => openFromUrl(u), 400); return; }   // first state not here yet (cold start)
     openTerm(term);

@@ -71,6 +71,19 @@ function targetCwd(target) {
   }
   return t.kind === 'root' ? devRoot : null;
 }
+async function resumeChat(cwd, acc, sessionId) {
+  const base = path.basename(cwd).replace(/[^A-Za-z0-9_.-]+/g, '-'); const suffix = acc === 'company' ? '-company' : '';
+  let name = `claude-${base}${suffix}`; let n = 2; while (await actions.sessionExists(name)) name = `claude-${base}-${n++}${suffix}`;
+  const r = await headless.launch(name, cwd, acc, sessionId ? { start: 'resume', sessionId } : { start: 'new' });
+  const hl = r.ok && sessionId ? history.labelOf(sessionId) : null; if (hl) claude.setLabel(r.name || name, hl);
+  return r;
+}
+async function resumeLastChat(cwd, acc) {
+  const e = await history.latestFor(cwd, acc);
+  if (!e) return { ok: false, error: 'no earlier conversation in this folder' };
+  if (e.live) return { ok: true, name: e.live, existed: true };
+  return resumeChat(cwd, acc, e.id);
+}
 const ICON_BATCH = 60;
 function iconTarget(b) {
   if (b.kind !== 'project' && b.kind !== 'org') return { status: 400, error: 'kind must be project or org' };
@@ -568,7 +581,6 @@ function sendStatic(req, res, fp, url) {
 const body = readBody;
 function sse(res) { res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive', 'x-accel-buffering': 'no' }); res.write(': hi\n\n'); }
 const proj = id => projects.find(p => p.id === id);
-const shqPrompt = s => `'${String(s).replace(/'/g, `'\\''`)}'`;
 
 // ---- Whisper on demand ----
 let whisperInfo = null;   // last /health answer: { idle, exitIn } — shown in the recording sheet
@@ -805,6 +817,11 @@ async function api(req, res, url) {
     res.writeHead(200, { 'content-type': f.type, ...icons.HEADERS }); return fs.createReadStream(f.file).on('error', () => res.destroy()).pipe(res);
   }
   if (m === 'GET' && parts[0] === 'history') { const q = url.searchParams; return json(res, 200, await history.query({ q: q.get('q') || '', account: q.get('account') || '', project: q.get('project') || '', limit: q.get('limit') })); }
+  if (m === 'GET' && parts[0] === 'history-last') {
+    const p = proj(url.searchParams.get('id') || ''); if (!p) return json(res, 404, { error: 'no project' });
+    const pick = e => e ? { id: e.id, title: e.label || e.title || e.firstPrompt || null, lastAt: e.lastAt, live: e.live } : null;
+    return json(res, 200, { personal: pick(await history.latestFor(p.path, 'personal')), company: pick(await history.latestFor(p.path, 'company')) });
+  }
   if (m === 'GET' && parts[0] === 'badge') { // tiny summary for the Mac menubar (xbar / SwiftBar plugin in mac/)
     const cl = snapshot.sessions.filter(x => x.claude); const need = cl.filter(x => x.claude.needsYou); const u = usage.summary();
     return json(res, 200, { need: need.length, working: cl.filter(x => x.claude.state === 'working' || x.claude.state === 'background').length, sessions: cl.length, today: u.total.today, needList: need.map(x => ({ name: x.name, label: x.claude.label, state: x.claude.state, msg: (x.claude.lastMessage || '').slice(0, 100) })), crashes: recentCrashes().length });
@@ -874,11 +891,16 @@ async function api(req, res, url) {
     }
     case 'stop': { const r = await actions.stop(b.session, !!b.force); if (String(b.session).startsWith('claude-')) claude.forget(b.session); setTimeout(tick, 300); return json(res, 200, r); }
     case 'shell': { const r = await actions.shellSession(); setTimeout(tick, 600); return json(res, r.ok ? 200 : 500, r); } // persistent bash in tmux (sh-N)
-    case 'claude': { // start (or reuse) a persistent Claude Code tmux session for a project: personal | company account
+    case 'claude': {
       const p = proj(b.id); if (!p) return json(res, 404, { error: 'no project' });
       const account = b.account === 'company' ? 'company' : 'personal';
-      if (b.mode === 'chat') { const r = await headless.start(p, account); setTimeout(tick, 800); setTimeout(tick, 2500); return json(res, r.ok ? 200 : 500, r); }
-      const r = await actions.claudeSession(p, account, { resume: b.resume === true ? true : (b.resume || false), fresh: !!b.fresh, worktree: b.worktree || null }); setTimeout(tick, 800); setTimeout(tick, 2500); return json(res, r.ok ? 200 : 500, r);
+      let r;
+      if (b.worktree) {
+        const w = await worktrees.create(p.path, b.worktree); if (w.error) return json(res, 400, { ok: false, error: w.error });
+        r = await headless.start(p, account, { cwd: w.path, base: `${p.dirName}-wt-${path.basename(w.path)}` });
+      } else if (b.resume) r = await resumeLastChat(p.path, account);
+      else r = await headless.start(p, account);
+      setTimeout(tick, 800); setTimeout(tick, 2500); return json(res, r.ok ? 200 : 500, r);
     }
     case 'claude-restore': { // relaunch sessions whose tmux session vanished (reboot): all of them, or one by tmux name
       const list = claude.restorable().filter(r => !b.tmux || r.tmux === b.tmux); const out = [];
@@ -886,13 +908,10 @@ async function api(req, res, url) {
       setTimeout(tick, 1000); setTimeout(tick, 3000); return json(res, 200, { ok: true, restored: out });
     }
     case 'claude-forget': { if (typeof b.tmux !== 'string') return json(res, 400, { error: 'tmux?' }); const r = claude.forget(b.tmux); setTimeout(tick, 100); return json(res, 200, r); }
-    case 'claude-resume': { // start a session from a past conversation (search result): same dir, same account, --resume <id>
-      const { sessionId, cwd, account } = b; const chat = b.mode === 'chat';
-      if (!(chat && !sessionId) && !/^[0-9a-f-]{36}$/.test(sessionId || '') || typeof cwd !== 'string' || !path.isAbsolute(cwd) || !fs.existsSync(cwd)) return json(res, 400, { error: 'bad session / folder gone' });
-      const base = path.basename(cwd).replace(/[^A-Za-z0-9_.-]+/g, '-'); const acc = account === 'company' ? 'company' : 'personal'; const suffix = acc === 'company' ? '-company' : '';
-      let name = `claude-${base}${suffix}`; let n = 2; while (await actions.sessionExists(name)) name = `claude-${base}-${n++}${suffix}`;
-      const r = chat ? await headless.launch(name, cwd, acc, sessionId ? { start: 'resume', sessionId } : { start: 'new' }) : await actions.restoreClaude({ tmux: name, cwd, account: acc, sessionId });
-      const hl = r.ok && sessionId ? history.labelOf(sessionId) : null; if (hl) claude.setLabel(r.name || name, hl);
+    case 'claude-resume': {
+      const { sessionId, cwd, account } = b;
+      if (!/^[0-9a-f-]{36}$/.test(sessionId || '') && sessionId || typeof cwd !== 'string' || !path.isAbsolute(cwd) || !fs.existsSync(cwd)) return json(res, 400, { error: 'bad session / folder gone' });
+      const r = await resumeChat(cwd, account === 'company' ? 'company' : 'personal', sessionId || null);
       setTimeout(tick, 1000); setTimeout(tick, 3000); return json(res, r.ok ? 200 : 500, r);
     }
     case 'claude-version': {
@@ -907,47 +926,40 @@ async function api(req, res, url) {
       await claudeVersion(true); pushState(true);
       return json(res, r.ok ? 200 : 500, r.ok ? { ok: true, installed: CLAUDE_VERSION } : { error: (r.stderr || r.stdout).trim().split('\n').slice(-3).join('\n') || 'mise upgrade failed' });
     }
-    case 'claude-restart': { // exit + relaunch with --resume in the same tmux (picks up an installed Claude Code update)
+    case 'claude-restart': {
       if (SWITCHING.has(String(b.session || ''))) return json(res, 409, { error: 'busy' });
+      const name = String(b.session || '');
+      if (!isChat(name)) return json(res, 400, { error: 'only chat sessions can be restarted — start a new chat instead' });
       if (b.ifIdle) {
-        const name = String(b.session || ''); await claude.refreshPeeks([name]); const inf = claude.info(name);
+        const inf = claude.info(name);
         if (!['idle', 'needs-you'].includes(inf.state)) return json(res, 409, { error: 'busy' });
-        if (inf.draft) return json(res, 409, { error: 'has an unsent draft' });
       }
-      const r = await actions.restartClaude(String(b.session || ''), claude.get(String(b.session || ''))); setTimeout(tick, 1500); setTimeout(tick, 5000); return json(res, r.ok ? 200 : 500, r);
+      const r = await actions.restartClaude(name, claude.get(name)); setTimeout(tick, 1500); setTimeout(tick, 5000); return json(res, r.ok ? 200 : 500, r);
     }
     case 'claude-switch': {
-      const name = String(b.session || ''); const to = b.to; const rec = claude.get(name);
-      if (to !== 'term' && to !== 'chat') return json(res, 400, { error: 'to?' });
+      const name = String(b.session || ''); const rec = claude.get(name);
+      if (b.to !== 'chat') return json(res, 400, { error: 'to?' });
       if (!rec || !(await actions.sessionExists(name))) return json(res, 404, { error: 'no such session' });
       if (SWITCHING.has(name)) return json(res, 409, { error: 'busy' });
-      if ((to === 'term') !== (rec.mode === 'chat')) return json(res, 409, { error: to === 'term' ? 'not a chat session' : 'already a chat' });
+      if (rec.mode === 'chat') return json(res, 409, { error: 'already a chat' });
       const sid = rec.sessionId; const account = rec.account === 'company' ? 'company' : 'personal';
       if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(sid || '')) return json(res, 409, { error: 'no conversation id' });
       const tr = headless.findTranscript(rec.cwd, account, sid, rec.transcriptPath); if (!tr) return json(res, 409, { error: 'conversation file not found' });
-      const cwd = tr.dir; if (!cwd) return json(res, 409, { error: to === 'term' ? 'the chat folder is gone — move the chat first' : 'the session folder is gone' });
+      const cwd = tr.dir; if (!cwd) return json(res, 409, { error: 'the session folder is gone' });
       SWITCHING.add(name); SWITCHED.set(name, Date.now());
       try {
-        if (to === 'term') {
-          const L = await headless.status(name);
-          if (L && (L.state === 'working' || L.state === 'starting' || (L.pending || []).length)) return json(res, 409, { error: 'busy' });
-          const r = await actions.respawnShell(name, cwd, account, sid, settings.get().port);
-          if (!r.ok) return json(res, 500, r);
-          claude.unmarkChat(name); headless.forget(name);
-        } else {
-          const pane = await actions.paneInfo(name);
-          if (!pane || pane.windows !== 1 || pane.panes !== 1) return json(res, 409, { error: 'only for a session with one window and one pane' });
-          if (pane.cmd !== 'claude' || !pane.shell) return json(res, 409, { error: 'claude is not running under a shell in this session' });
-          await claude.refreshPeeks([name]); const inf = claude.info(name);
-          if (!['idle', 'needs-you'].includes(inf.state)) return json(res, 409, { error: 'busy' });
-          if (inf.draft) return json(res, 409, { error: 'clear the prompt box first' });
-          if (!(await actions.exitClaude(name))) return json(res, 500, { error: 'claude did not exit' });
-          const r = await headless.respawn(name, cwd, account, sid);
-          if (!r.ok) { await actions.resumeHere(name, account, sid); return json(res, 500, r); }
-          claude.markChat(name, { cwd, account, sessionId: sid, transcriptPath: tr.file });
-        }
+        const pane = await actions.paneInfo(name);
+        if (!pane || pane.windows !== 1 || pane.panes !== 1) return json(res, 409, { error: 'only for a session with one window and one pane' });
+        if (pane.cmd !== 'claude' || !pane.shell) return json(res, 409, { error: 'claude is not running under a shell in this session' });
+        await claude.refreshPeeks([name]); const inf = claude.info(name);
+        if (!['idle', 'needs-you'].includes(inf.state)) return json(res, 409, { error: 'busy' });
+        if (inf.draft) return json(res, 409, { error: 'clear the prompt box first' });
+        if (!(await actions.exitClaude(name))) return json(res, 500, { error: 'claude did not exit' });
+        const r = await headless.respawn(name, cwd, account, sid);
+        if (!r.ok) return json(res, 500, r);
+        claude.markChat(name, { cwd, account, sessionId: sid, transcriptPath: tr.file });
         SWITCHED.set(name, Date.now()); setTimeout(tick, 1000); setTimeout(tick, 3000);
-        return json(res, 200, { ok: true, name, mode: to });
+        return json(res, 200, { ok: true, name, mode: 'chat' });
       } finally { SWITCHING.delete(name); }
     }
     case 'chat-move': {
@@ -994,9 +1006,10 @@ async function api(req, res, url) {
       const t = tasks.all().find(x => x.id === String(b.id || '')); if (!t) return json(res, 404, { error: 'no such task' });
       const p = t.project ? proj(t.project) : null; if (!p) return json(res, 400, { error: 'task has no project — pick one first' });
       const account = b.account === 'company' ? 'company' : 'personal';
+      if (b.session && !isChat(b.session)) return json(res, 400, { error: 'that session is not a chat — pick a chat or start a new one' });
       let name = b.session && snapshot.sessions.find(s => s.name === b.session) ? b.session : null;
-      if (!name) { const cands = snapshot.sessions.filter(s => s.claude && s.project === p.id && (s.claude.account || (s.name.endsWith('-company') ? 'company' : 'personal')) === account); name = cands[0]?.name || null; }
-      if (!name) { const r = await actions.claudeSession(p, account, {}); if (!r.ok) return json(res, 500, r); name = r.name; setTimeout(tick, 800); setTimeout(tick, 2500); }
+      if (!name) { const cands = snapshot.sessions.filter(s => s.claude && isChat(s.name) && s.project === p.id && (s.claude.account || (s.name.endsWith('-company') ? 'company' : 'personal')) === account); name = cands[0]?.name || null; }
+      if (!name) { const r = await headless.start(p, account); if (!r.ok) return json(res, 500, r); name = r.name; setTimeout(tick, 800); setTimeout(tick, 2500); }
       const at = Date.now() + (snapshot.sessions.some(s => s.name === name) ? 0 : 8000);
       // one job per task, all on the same session, in order: the scheduler sends the next one only when the session is idle again
       const list = Array.isArray(b.ids) && b.ids.length ? b.ids.map(i => tasks.all().find(x => x.id === String(i))).filter(x => x && x.status !== 'done' && x.project === p.id) : [t];
@@ -1019,9 +1032,7 @@ async function api(req, res, url) {
       const users = t.turns.filter(x => x.role === 'user').slice(-4).map(x => '- ' + x.text.replace(/\s+/g, ' ').slice(0, 300));
       const lastA = [...t.turns].reverse().find(x => x.role === 'assistant' && transcript.turnText(x)); const last = lastA && { text: transcript.turnText(lastA) }; const files = (from.touched || []).slice(0, 15).map(x => '- ' + x.path);
       const prompt = [`Handoff from another Claude Code session in this same folder (it hit its usage limit). Continue its work.`, ``, `What I asked it recently:`, ...users, ``, last ? `Its last reply (may be incomplete):\n${last.text.slice(0, 1500)}` : '', files.length ? `\nFiles it edited in that session:\n${files.join('\n')}` : '', ``, `Start by running git status and git diff --stat here to see the uncommitted state, then continue from where it stopped. Ask me if the goal is unclear.`].filter(x => x !== null).join('\n');
-      const base = path.basename(from.cwd).replace(/[^A-Za-z0-9_.-]+/g, '-'); const suffix = to === 'company' ? '-company' : '';
-      let name = `claude-${base}${suffix}`; let n = 2; while (await actions.sessionExists(name)) name = `claude-${base}-${n++}${suffix}`;
-      const r = await actions.launchClaude(name, from.cwd, to, shqPrompt(prompt)); setTimeout(tick, 1500); setTimeout(tick, 4000); return json(res, r.ok ? 200 : 500, { ...r, to });
+      const r = await headless.startChat(from.cwd, to, prompt); setTimeout(tick, 1500); setTimeout(tick, 4000); return json(res, r.ok ? 200 : 500, { ...r, to });
     }
     case 'guess-project': return json(res, 200, guess.guess(String(b.text || '').slice(0, 20000), { projects, history: history.entries(), context: typeof b.context === 'string' ? b.context : null, devRoot: settings.get().devRoot }));
     case 'icon-set': case 'icon-reset': {

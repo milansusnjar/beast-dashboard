@@ -193,7 +193,6 @@
   function deepLink(q) {
     const n = q.get('subagents'); if (!n) return false;
     history.replaceState(null, '', location.pathname);
-    TERM.mode = 'chat'; try { localStorage.setItem('bd.mode', 'chat'); } catch {}
     openTerm(n);
     if (q.get('chip')) setTimeout(() => { const sc = document.querySelector('.cscroll'); if (sc) sc.scrollTop = 0; }, 3500);   // &chip=1: show the chat bar (screenshots)
     else setTimeout(() => sheet(n, q.get('agent')), 2500);

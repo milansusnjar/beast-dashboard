@@ -166,7 +166,6 @@
       else if (!IS_PHONE) setTimeout(() => ta.focus(), 0);
     };
     const foot = h('div', { class: 'ns-foot' },
-      h('button', { class: 'btn sm ghost', title: 'the old picker: Claude in a terminal (TUI) in one project, or resume its last conversation', onclick: () => { close(); newTerminalModal(); } }, ico('terminal', 13), 'Terminal in a project…'),
       h('button', { class: 'btn sm ghost', title: 'plain bash in ~/dev', onclick: () => { close(); newShell(); } }, ico('plus', 13), 'Plain shell'));
     const box = h('div', { class: 'box ntbox nsbox' },
       h('div', { class: 'sh' }, h('h3', null, '＋ New session'), h('span', { class: 'sp' }), acctSeg, h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: close }, ico('x', 15))),

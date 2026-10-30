@@ -69,7 +69,7 @@
     const allowBtn = h('button', { class: 'btn primary ibx-btn ibx-allow', title: 'allow this tool run (y)', onclick: () => answer('y') }, 'Allow');
     const denyBtn = h('button', { class: 'btn ibx-btn ibx-deny', title: 'deny this tool run (n)', onclick: () => answer('n') }, 'Deny');
     const permBtns = h('div', { class: 'ibx-perms' }, allowBtn, denyBtn, tellBtn);
-    const chatBtn = h('button', { class: 'btn ibx-btn', title: 'open the chat', onclick: () => { close(); TERM.mode = 'chat'; try { localStorage.setItem('bd.mode', 'chat'); } catch {} openTerm(name); } }, ico('chat', 15), 'Open chat');
+    const chatBtn = h('button', { class: 'btn ibx-btn', title: 'open the chat', onclick: () => { close(); openTerm(name); } }, ico('chat', 15), 'Open chat');
     const seenBtn = h('button', { class: 'btn ghost ibx-btn', title: 'mark as seen — hides it until the state changes', onclick: () => {
       const cl = claudeOf(name); if (cl) IBX.seen.set(name, cl.since);
       api('claude-seen', { session: name }).catch(() => {}); render();

@@ -153,3 +153,21 @@ test('broken state files: bad records are re-read, non-string labels dropped', a
   assert.strictEqual(h.labelOf(ID(2)), 'ok');
   assert.strictEqual(h.labelOf(ID(3)), null);
 });
+
+test('latestFor: newest conversation whose folder is exactly the given one, per account', async t => {
+  const e = setup(t);
+  const shop = path.join(e.dev, 'acme', 'shop'), api = path.join(shop, 'api');
+  e.write('personal', 'a', ID(11), [user('old shop work', 1000, { cwd: shop }), user('more', 2000, { cwd: shop })]);
+  e.write('personal', 'a', ID(12), [user('newer shop work', 5000, { cwd: shop })]);
+  e.write('personal', 'b', ID(13), [user('api only', 9000, { cwd: api })]);
+  e.write('company', 'a', ID(14), [user('company shop', 7000, { cwd: shop })]);
+  e.start();
+  assert.strictEqual((await h.latestFor(shop, 'personal')).id, ID(12));
+  assert.strictEqual((await h.latestFor(shop, 'company')).id, ID(14));
+  assert.strictEqual((await h.latestFor(api, 'personal')).id, ID(13));
+  assert.strictEqual(await h.latestFor(path.join(e.dev, 'beta', 'app'), 'personal'), null);
+  assert.strictEqual(await h.latestFor('relative/dir', 'personal'), null);
+  e.live[ID(12)] = 'claude-shop';
+  await h.refresh(true);
+  assert.strictEqual((await h.latestFor(shop, 'personal')).live, 'claude-shop');
+});
