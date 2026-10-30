@@ -1413,6 +1413,11 @@ body.recording .ckeys > :not(.mic) { pointer-events: none; opacity: .4; }
   .ckeys .csched .ico { width: 18px; height: 18px; }
   .tr-sum, .tg-sum { padding: 8px 6px; font-size: 13.5px; } .trow.open > .tr-body { padding-left: 4px; } .tgroup.open > .tg-body { margin-left: 8px; padding-left: 6px; }
 }
+@media (max-width: 380px) {
+  .termbar { gap: 4px; padding: 6px; }
+  .termbar .cst b { display: none; }
+  .termbar .msess { min-width: 72px; gap: 6px; }
+}
 @keyframes sheet { from { transform: translateY(40px); opacity: .4; } }
 @media (max-width: 600px) { .limcols { grid-template-columns: 1fr; gap: 10px; } .limcols .limcol + .limcol { border-left: 0; padding-left: 0; border-top: 1px solid var(--line); padding-top: 10px; } }
 /* iOS zooms when a focused field is under 16px: every text field is 16px on touch screens */

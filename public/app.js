@@ -1287,7 +1287,12 @@ function openMenu(ev, items) {
     if (it.el) { m.append(it.el); continue; }
     m.append(h('div', { class: 'mi' + (it.cur ? ' cur' : '') + (it.disabled ? ' dis' : '') + (it.danger ? ' danger' : ''), title: it.title, onclick: () => { closeMenu(); it.onclick?.(); } }, h('span', { class: 'ico' }, gico(it.icon || '')), h('span', { class: 'k' }, it.label), it.sub ? h('span', { class: 'c' }, it.sub) : null));
   }
-  const r = ev.currentTarget.getBoundingClientRect(); m.style.left = Math.min(r.left, innerWidth - m.offsetWidth - 12) + 'px'; m.style.top = (r.bottom + 6 + m.offsetHeight > innerHeight ? r.top - m.offsetHeight - 6 : r.bottom + 6) + 'px';
+  const r = ev.currentTarget.getBoundingClientRect(), pad = 8;
+  m.style.left = m.style.top = '0px'; m.style.maxWidth = Math.min(440, innerWidth - pad * 2) + 'px'; m.style.maxHeight = Math.min(innerHeight * .7, innerHeight - pad * 2) + 'px';
+  const w = m.offsetWidth, mh = m.offsetHeight, x = r.left + w > innerWidth - pad ? r.right - w : r.left;
+  m.style.left = Math.max(pad, Math.min(x, innerWidth - w - pad)) + 'px';
+  const below = r.bottom + 6, above = r.top - mh - 6;
+  m.style.top = Math.max(pad, below + mh > innerHeight - pad && above >= pad ? above : Math.min(below, innerHeight - mh - pad)) + 'px';
   setTimeout(() => document.addEventListener('mousedown', onDocDown, { once: true }), 0);
 }
 function onDocDown(e) { if (!$('#menu').contains(e.target)) { if (UI.menuAnchor && UI.menuAnchor.contains(e.target)) { UI.menuShut = UI.menuAnchor; UI.menuShutAt = Date.now(); } closeMenu(); } else setTimeout(() => document.addEventListener('mousedown', onDocDown, { once: true }), 0); }
