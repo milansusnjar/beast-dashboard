@@ -1102,7 +1102,7 @@ function renderTunnels() {
       h('div', { class: 'row', style: 'border-top:0;padding-top:0' }, h('span', null, 'Expose manually:'), inp, h('button', { class: 'btn sm', onclick: doExpose }, 'expose'), h('span', { class: 'note', style: 'margin:0' }, 'Manual ports are pinned: they stay forwarded until you remove them, even if nothing listens yet.')),
       h('div', { id: 'tun-rows' }),
       h('div', { class: 'note', id: 'tun-other' }),
-      h('div', { class: 'note' }, 'Links use ' + (S.host.publicHost || '') + ':PORT. For localhost:PORT on your laptop see README (mac/).'));
+      h('div', { class: 'note' }, 'Links use ' + (S.host.publicHost || '') + ':PORT. For localhost:PORT on your laptop see docs/guide/everyday-use.md (mac/beast-tunnel.sh).'));
   }
   $('#tun-ip').textContent = S.host.tsIp || '?'; $('#tun-auto').checked = !!S.settings.autoExpose;
   const ex = S.runtime.exposures; const manual = new Set((S.runtime.manual || []).map(m => m.port));
@@ -2723,7 +2723,7 @@ function renderPalette() {
 const PUSH = { supported: 'serviceWorker' in navigator && 'PushManager' in window && (location.protocol === 'https:' || location.hostname === 'localhost'), sub: null };
 async function pushStatus() { if (!PUSH.supported) return null; try { const reg = await navigator.serviceWorker.getRegistration('/'); PUSH.sub = reg ? await reg.pushManager.getSubscription() : null; return PUSH.sub; } catch { return null; } }
 async function enablePush() {
-  if (!PUSH.supported) { toast('Push needs HTTPS — see README (tailscale serve).', 'err'); return; }
+  if (!PUSH.supported) { toast('Push needs HTTPS — see docs/guide/access.md (bin/enable-https.sh).', 'err'); return; }
   try {
     const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
     const perm = await Notification.requestPermission(); if (perm !== 'granted') { toast('notifications blocked in the browser', 'err'); return; }

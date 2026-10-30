@@ -108,7 +108,7 @@ Open the dashboard and use ⚙ Settings; it writes `state/settings.json`. Worth 
 - `devRoot` — where projects are scanned (default `~/dev`), and `scanDepth` (default 4).
 - `sshHost` / `sshUser` — the client's `~/.ssh/config` alias, which turns the VS Code button into a
   working `vscode://vscode-remote/ssh-remote+<host>/<path>` link. Left empty, the button is useless.
-  The README has a matching ssh config block.
+  [docs/guide/install.md](docs/guide/install.md#the-ssh-config-block) has a matching ssh config block.
 - `publicHost` — leave empty to auto-detect the Tailscale IPv4.
 - `autoRestore` — bring Claude sessions back after a reboot.
 - Notification rules (events, quiet hours, per-session mute) — only relevant once push works.
@@ -167,7 +167,7 @@ and that the path exists.
   hook installer only touches the second one if the folder exists. Their ids inside the code are
   `personal` / `company` (they name the folders); the names shown in the UI come from
   `accountLabels` in Settings → *Claude accounts* — ask the user what to call them.
-- The README uses placeholders for the tailnet (`100.x.y.z`, `<server>.<tailnet>.ts.net`);
+- The docs ([docs/guide](docs/guide/README.md)) use placeholders for the tailnet (`100.x.y.z`, `<server>.<tailnet>.ts.net`);
   substitute the user's real values when you report the URL.
 
 ## What is in this repository
