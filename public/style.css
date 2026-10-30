@@ -1388,7 +1388,10 @@ body.recording .ckeys > :not(.mic) { pointer-events: none; opacity: .4; }
   .termbar .ctxm { height: 32px; padding: 0 4px; gap: 5px; border: 0; background: none; font-size: 12.5px; } .termbar .ctxm .of { display: none; }
   .termbar .msess .nm { flex: 1 1 auto; min-width: 44px; }
   .termbar .msess .tacc { display: none; }
-  .termbar .tmore { height: 32px; padding: 0 8px; }
+  .termbar .tmore { height: 34px; width: 34px; padding: 0; justify-content: center; } .termbar .tmore svg:last-child { display: none; }
+  .termbar .btn.mob { width: 30px; padding: 0; justify-content: center; }
+  .termbar .sa-chip { display: none !important; }
+  .termbar .cvfiles { width: 34px; padding: 0; } .termbar .cvfiles .pill { display: none; }
   .termside-head { padding: 10px 12px; flex-wrap: nowrap; } .termside-head .btn { flex: none; } .termside-head .sp { flex: 1 1 auto; }
   .titem { padding: 12px 12px 12px 14px; }
   select.mob.tsel { flex: 1 1 auto; min-width: 0; }
