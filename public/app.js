@@ -1950,13 +1950,18 @@ async function openTranscriptFile(hh) {
 // A layer (drawer, terminal panel, palette, #modal dialog) pushes a history entry, so the phone's back gesture / browser
 // Back closes the layer instead of leaving the dashboard. Closing from the UI pops that entry again so history stays clean.
 // history.back() is async and a pushState() before it lands ends up on the wrong entry, hence the handover and the queue.
-const LAYERS = { depth: 0, closing: false, modal: false, queued: 0, fwd: false, timer: 0 };
+const LAYERS = { depth: 0, closing: false, modal: false, queued: 0, fwd: false, timer: 0, reuse: false };
 const modalOpen = () => !$('#modal').classList.contains('hidden');
 function pushLayer(name) {
   if (LAYERS.modal && !modalOpen()) { LAYERS.modal = false; return; }   // close(); openTerm(x) in one tick: the dialog's entry becomes this layer's
   if (LAYERS.closing || LAYERS.fwd) { LAYERS.queued++; return; }        // a history step is on its way: settleLayers() pushes after it lands
+  // Chrome's history intervention: after the user's Back a pushState needs a new gesture, or the next Back jumps over the
+  // entry below it and leaves the page. navigator.userActivation can't tell (isActive stays true for 5 s after a tap), so
+  // until the next gesture a layer steps forward onto the entry that Back left behind: same history, nothing to skip.
+  if (LAYERS.reuse) { LAYERS.reuse = false; LAYERS.depth++; layerForward(); return; }
   LAYERS.depth++; history.pushState({ bd: name, depth: LAYERS.depth }, '');
 }
+for (const t of ['click', 'keydown']) window.addEventListener(t, e => { if (e.isTrusted && e.key !== 'Escape') LAYERS.reuse = false; }, true);
 function popLayer() {
   if (LAYERS.queued) { LAYERS.queued--; return; }   // opened and closed again while a history step was on its way: nothing was pushed
   if (LAYERS.fwd) { setTimeout(popLayer, 50); return; }   // back() before a forward() lands counts from the entry below: that leaves the page
@@ -1971,13 +1976,13 @@ new MutationObserver(syncModalLayer).observe($('#modal'), { attributes: true, at
 window.addEventListener('popstate', () => {
   if (LAYERS.fwd) { LAYERS.fwd = false; settleLayers(); return; }   // our own layerForward()
   if (LAYERS.closing) { LAYERS.closing = false; LAYERS.depth = Math.max(0, LAYERS.depth - 1); settleLayers(); return; }   // our own popLayer()
-  LAYERS.depth = Math.max(0, LAYERS.depth - 1);
+  LAYERS.depth = Math.max(0, LAYERS.depth - 1); LAYERS.reuse = true;
   if (PAL.open) closePalette(false);
   else if (modalOpen()) {   // Back = Escape: the dialog's own listener runs (confirmBox resolves false), the global handler hides the rest
     LAYERS.modal = false; document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
     // Escape only closed something inside it (project picker, subagent detail, recording): back onto the same entry. A
     // pushState here has no user gesture, and Chrome would then make the next Back jump over the entry below.
-    if (modalOpen()) { LAYERS.modal = true; LAYERS.depth++; layerForward(); }
+    if (modalOpen()) { LAYERS.modal = true; LAYERS.depth++; LAYERS.reuse = false; layerForward(); }
   }
   else if (UI.drawer) closeDrawer(false); else if (TERM.open) closeTermPanel(false); else feat('back');
 });
