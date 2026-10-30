@@ -1053,8 +1053,8 @@ body.term-open { overflow: hidden; }
 /* chat: a readable column, your messages as warm bubbles on the right, Claude's as plain text */
 .chatpane { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; overflow: hidden; background: var(--bg); }
 .db.sess { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
-.cscroll { flex: 1; min-height: 0; overflow: auto; padding: 14px 24px 18px; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y; }
-.cscroll > * { max-width: 1040px; margin-left: auto; margin-right: auto; }
+.cscroll { flex: 1; min-height: 0; overflow: auto; padding: 14px max(24px, 3vw) 18px; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y; }
+.cscroll > * { max-width: 1320px; margin-left: auto; margin-right: auto; }
 .cscroll .cbar { margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
 .cbar .btn.on { color: var(--text); background: color-mix(in srgb, var(--accent) 20%, transparent); }
 .coff { color: var(--amber); font-size: 11.5px; }
@@ -1153,8 +1153,8 @@ body.term-open { overflow: hidden; }
 .turn.user.midturn { outline: 1px dashed color-mix(in srgb, var(--signal) 45%, transparent); outline-offset: -1px; }
 .wtimer { font-variant-numeric: tabular-nums; }
 /* composer */
-.cbox2 { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 4px 24px calc(16px + env(safe-area-inset-bottom)); background: var(--bg); }
-.cbox2 > * { width: 100%; max-width: 1040px; margin: 0 auto; }
+.cbox2 { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 4px max(24px, 3vw) calc(16px + env(safe-area-inset-bottom)); background: var(--bg); }
+.cbox2 > * { width: 100%; max-width: 1320px; margin: 0 auto; }
 .cfield { display: flex; flex-direction: column; border: 1px solid var(--line2); border-radius: 20px; background: var(--panel); box-shadow: 0 10px 34px rgb(0 0 0 / .28); cursor: text; transition: border-color .15s, box-shadow .15s; }
 .cfield:focus-within { border-color: color-mix(in srgb, var(--accent) 55%, var(--line2)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent), 0 10px 34px rgb(0 0 0 / .28); }
 .cfield .ckeys .qk.mic { background: transparent; }
