@@ -1947,15 +1947,39 @@ async function openTranscriptFile(hh) {
 }
 
 // ---------- drawer ----------
-// A layer (drawer, terminal panel, palette) pushes a history entry, so the phone's back gesture / browser Back closes
-// the layer instead of leaving the dashboard. Closing from the UI pops that entry again so history stays clean.
-const LAYERS = { depth: 0, closing: false };
-function pushLayer(name) { LAYERS.depth++; history.pushState({ bd: name, depth: LAYERS.depth }, ''); }
-function popLayer() { if (LAYERS.depth > 0 && !LAYERS.closing) { LAYERS.closing = true; history.back(); setTimeout(() => { LAYERS.closing = false; }, 400); } }
+// A layer (drawer, terminal panel, palette, #modal dialog) pushes a history entry, so the phone's back gesture / browser
+// Back closes the layer instead of leaving the dashboard. Closing from the UI pops that entry again so history stays clean.
+// history.back() is async and a pushState() before it lands ends up on the wrong entry, hence the handover and the queue.
+const LAYERS = { depth: 0, closing: false, modal: false, queued: 0, fwd: false, timer: 0 };
+const modalOpen = () => !$('#modal').classList.contains('hidden');
+function pushLayer(name) {
+  if (LAYERS.modal && !modalOpen()) { LAYERS.modal = false; return; }   // close(); openTerm(x) in one tick: the dialog's entry becomes this layer's
+  if (LAYERS.closing || LAYERS.fwd) { LAYERS.queued++; return; }        // a history step is on its way: settleLayers() pushes after it lands
+  LAYERS.depth++; history.pushState({ bd: name, depth: LAYERS.depth }, '');
+}
+function popLayer() {
+  if (LAYERS.queued) { LAYERS.queued--; return; }   // opened and closed again while a history step was on its way: nothing was pushed
+  if (LAYERS.fwd) { setTimeout(popLayer, 50); return; }   // back() before a forward() lands counts from the entry below: that leaves the page
+  if (LAYERS.depth > 0 && !LAYERS.closing) { LAYERS.closing = true; history.back(); clearTimeout(LAYERS.timer); LAYERS.timer = setTimeout(() => { if (LAYERS.closing) { LAYERS.closing = false; settleLayers(); } }, 1000); }
+}
+function layerForward() { LAYERS.fwd = true; history.forward(); setTimeout(() => { if (LAYERS.fwd) { LAYERS.fwd = false; settleLayers(); } }, 1000); }
+function settleLayers() { while (LAYERS.queued) { LAYERS.queued--; pushLayer('layer'); } syncModalLayer(); }
+// #modal is one layer whoever owns it: every dialog shows and hides it, so one observer sees all of them, however they close
+// (X, Cancel, backdrop, Escape, a successful action). A dialog replacing another never changes the class, so no second entry.
+function syncModalLayer() { const open = modalOpen(); if (LAYERS.closing || LAYERS.fwd || open === LAYERS.modal) return; LAYERS.modal = open; if (open) pushLayer('modal'); else popLayer(); }
+new MutationObserver(syncModalLayer).observe($('#modal'), { attributes: true, attributeFilter: ['class'] });
 window.addEventListener('popstate', () => {
-  if (LAYERS.closing) { LAYERS.closing = false; LAYERS.depth = Math.max(0, LAYERS.depth - 1); return; }   // our own popLayer()
+  if (LAYERS.fwd) { LAYERS.fwd = false; settleLayers(); return; }   // our own layerForward()
+  if (LAYERS.closing) { LAYERS.closing = false; LAYERS.depth = Math.max(0, LAYERS.depth - 1); settleLayers(); return; }   // our own popLayer()
   LAYERS.depth = Math.max(0, LAYERS.depth - 1);
-  if (PAL.open) closePalette(false); else if (UI.drawer) closeDrawer(false); else if (TERM.open) closeTermPanel(false); else feat('back');
+  if (PAL.open) closePalette(false);
+  else if (modalOpen()) {   // Back = Escape: the dialog's own listener runs (confirmBox resolves false), the global handler hides the rest
+    LAYERS.modal = false; document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    // Escape only closed something inside it (project picker, subagent detail, recording): back onto the same entry. A
+    // pushState here has no user gesture, and Chrome would then make the next Back jump over the entry below.
+    if (modalOpen()) { LAYERS.modal = true; LAYERS.depth++; layerForward(); }
+  }
+  else if (UI.drawer) closeDrawer(false); else if (TERM.open) closeTermPanel(false); else feat('back');
 });
 function openDrawer(id, tab = 'overview', logTarget = null) { const was = UI.drawer; UI.drawer = id; UI.tab = tab; UI.logTarget = logTarget; $('#drawer').classList.add('open'); $('#scrim').classList.remove('hidden'); renderDrawer(true); if (!was) pushLayer('drawer'); }
 const CMSG = new Map();
