@@ -1179,16 +1179,17 @@ body.recording .ckeys > :not(.mic) { pointer-events: none; opacity: .4; }
 .cfield .creply { flex: none; display: block; width: 100%; box-sizing: border-box; min-height: 56px; max-height: 252px; padding: 16px 18px 4px; border: 0; border-radius: 20px 20px 0 0; background: transparent; box-shadow: none; font-size: 15px; }
 .cdrop .cscroll { outline: 2px dashed color-mix(in srgb, var(--accent) 70%, transparent); outline-offset: -8px; border-radius: 14px; }
 .cdrop .cfield { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
-.csend { flex: none; width: 32px; height: 32px; padding: 0; border-radius: 50%; justify-content: center; }
-.csend .ico { width: 16px; height: 16px; stroke-width: 2.6; }
+.csend { flex: none; width: 28px; height: 28px; padding: 0; border-radius: 50%; justify-content: center; }
+.csend .ico { width: 14px; height: 14px; stroke-width: 2.6; }
 .cfield .csend.primary { background: var(--accent); border: 0; box-shadow: none; color: #0d1230; }
 .cfield .csend.primary:hover { background: var(--accent2); box-shadow: none; }
-.cstop { background: var(--text); border: 0; box-shadow: none; }
-.cstop:hover { background: #fff; }
-.cstop-sq { display: block; width: 10px; height: 10px; border-radius: 2.5px; background: var(--bg); }
-.cqueue { flex: none; width: 32px; height: 32px; min-width: 0; padding: 0; border-radius: 50%; font-size: 14px; color: var(--muted); background: var(--fill2); border: 0; box-shadow: none; justify-content: center; }
+.cstop { background: var(--red); border: 0; box-shadow: 0 0 10px color-mix(in srgb, var(--red) 35%, transparent); }
+.cstop:hover { background: color-mix(in srgb, var(--red) 85%, #fff); }
+.cstop-sq { display: block; width: 9px; height: 9px; border-radius: 2px; background: #fff; }
+.cqueue { flex: none; width: 28px; height: 28px; min-width: 0; padding: 0; border-radius: 50%; font-size: 14px; color: var(--muted); background: var(--fill2); border: 0; box-shadow: none; justify-content: center; }
 .cqueue:hover { background: color-mix(in srgb, var(--text) 14%, transparent); color: var(--text); }
-.cqueue .ico { width: 16px; height: 16px; }
+.cqueue .ico { width: 14px; height: 14px; }
+.ckeys .csched .ico { width: 16px; height: 16px; stroke-width: 1.6; }
 .csend, .cqueue { transition: background .15s, transform .1s; }
 .csend:active, .cqueue:active { transform: scale(.92); }
 .qr.sticky { position: sticky; bottom: 0; background: var(--bg2); padding: 10px 0; border-top: 1px solid var(--line); margin-top: auto; }
@@ -1407,8 +1408,9 @@ body.recording .ckeys > :not(.mic) { pointer-events: none; opacity: .4; }
   .ckeys .qk { width: 38px; height: 40px; border-radius: 12px; } .ckeys .qk .ico { width: 21px; height: 21px; }
   .ckeys .qk.mic { min-width: 38px; height: 40px; padding: 0 8px; border-radius: 12px; }
   .cfield .mpick { gap: 0; } .cfield .mpill { padding: 0 7px; }
-  .csend, .cqueue { width: 36px; height: 36px; } .csend .ico { width: 17px; height: 17px; }
-  .cstop-sq { width: 11px; height: 11px; }
+  .csend, .cqueue { width: 32px; height: 32px; } .csend .ico { width: 15px; height: 15px; }
+  .cstop-sq { width: 10px; height: 10px; }
+  .ckeys .csched .ico { width: 18px; height: 18px; }
   .tr-sum, .tg-sum { padding: 8px 6px; font-size: 13.5px; } .trow.open > .tr-body { padding-left: 4px; } .tgroup.open > .tg-body { margin-left: 8px; padding-left: 6px; }
 }
 @keyframes sheet { from { transform: translateY(40px); opacity: .4; } }
